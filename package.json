@@ -6,9 +6,12 @@
     "start": "node servidor/api.js",
     "test": "node --test"
   },
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "bcryptjs": "^2.4.3",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "express-session": "^1.19.0"
   }
 }

@@ -62,6 +62,20 @@ function crearServicioUsuarios({ repo, log = () => {}, rondasHash = 10, requiere
       return publico(await crear({ email, password, rol: 'usuario', estado }));
     },
 
+        async iniciarSesion({ email, password }) {
+      const u = await repo.buscarPorEmail((email || '').trim().toLowerCase());
+      const ok = u && u.passwordHash && (await bcrypt.compare(password || '', u.passwordHash));
+      if (!ok) {
+        log('warn', 'login fallido', { email });
+        throw new ErrorApp('CREDENCIALES_INVALIDAS', 'Email o contraseña incorrectos', 401);
+      }
+      if (u.estado !== 'activo') {
+        throw new ErrorApp('CUENTA_PENDIENTE', 'Debes confirmar tu cuenta por correo antes de entrar', 403);
+      }
+      log('info', 'login correcto', { id: u.id });
+      return publico(u);
+    },
+
     // Primer administrador (se llama al arrancar con ADMIN_EMAIL / ADMIN_PASSWORD)
     async asegurarAdministrador(email, password) {
       if (await repo.buscarPorEmail((email || '').trim().toLowerCase())) {

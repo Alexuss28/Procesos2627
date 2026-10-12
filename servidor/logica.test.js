@@ -89,3 +89,38 @@ test('un usuario puede eliminar su propia cuenta y el admin la de cualquiera', a
   await servicio.eliminar(admin.id, luis.id);
   assert.equal((await servicio.listar(admin.id)).length, 1);
 });
+
+test('login correcto devuelve el usuario', async () => {
+  const { servicio } = crearEscenario();
+  await servicio.registrar({ email: 'ana@test.com', password: 'password123' });
+  const u = await servicio.iniciarSesion({ email: 'ana@test.com', password: 'password123' });
+  assert.equal(u.email, 'ana@test.com');
+});
+
+test('login con contraseña incorrecta falla', async () => {
+  const { servicio } = crearEscenario();
+  await servicio.registrar({ email: 'ana@test.com', password: 'password123' });
+  await assert.rejects(
+    () => servicio.iniciarSesion({ email: 'ana@test.com', password: 'mala' }),
+    { codigo: 'CREDENCIALES_INVALIDAS' }
+  );
+});
+
+test('login con cuenta pendiente de confirmar falla', async () => {
+  const servicio = crearServicioUsuarios({ repo: crearRepoMemoria(), rondasHash: 4, requiereConfirmacion: true });
+  await servicio.registrar({ email: 'ana@test.com', password: 'password123' });
+  await assert.rejects(
+    () => servicio.iniciarSesion({ email: 'ana@test.com', password: 'password123' }),
+    { codigo: 'CUENTA_PENDIENTE' }
+  );
+});
+
+test('un usuario eliminado no puede volver a iniciar sesión', async () => {
+  const { servicio } = crearEscenario();
+  const u = await servicio.registrar({ email: 'ana@test.com', password: 'password123' });
+  await servicio.eliminar(u.id, u.id);
+  await assert.rejects(
+    () => servicio.iniciarSesion({ email: 'ana@test.com', password: 'password123' }),
+    { codigo: 'CREDENCIALES_INVALIDAS' }
+  );
+});
