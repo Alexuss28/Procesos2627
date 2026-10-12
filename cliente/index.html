@@ -1,5 +1,133 @@
 <!DOCTYPE html>
 <html lang="es">
-<head><meta charset="UTF-8"><title>Mi SaaS</title></head>
-<body><h1>Mi SaaS</h1><p>Hito 1: despliegue funcionando.</p></body>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mi SaaS</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+    input, button { padding: .5rem; margin: .25rem 0; }
+    input { display: block; width: 100%; box-sizing: border-box; }
+    .error { color: #b00020; } .ok { color: #1b7f3b; }
+    table { width: 100%; border-collapse: collapse; } td, th { border-bottom: 1px solid #ddd; padding: .4rem; text-align: left; }
+    .oculto { display: none; }
+  </style>
+</head>
+<body>
+  <h1>Mi SaaS</h1>
+  <p id="mensaje" role="alert"></p>
+
+  <section id="vista-acceso">
+    <h2>Iniciar sesión</h2>
+    <input id="login-email" type="email" placeholder="Email">
+    <input id="login-password" type="password" placeholder="Contraseña">
+    <button id="btn-login">Entrar</button>
+
+    <h2>Crear cuenta</h2>
+    <input id="reg-email" type="email" placeholder="Email">
+    <input id="reg-password" type="password" placeholder="Contraseña (mín. 8 caracteres)">
+    <button id="btn-registro">Registrarme</button>
+  </section>
+
+  <section id="vista-panel" class="oculto">
+    <p>Sesión iniciada como <strong id="panel-email"></strong> (<span id="panel-rol"></span>)</p>
+    <button id="btn-logout">Cerrar sesión</button>
+    <button id="btn-borrar-cuenta">Eliminar mi cuenta</button>
+
+    <div id="zona-admin" class="oculto">
+      <h2>Usuarios</h2>
+      <table>
+        <thead><tr><th>Email</th><th>Rol</th><th>Estado</th><th></th></tr></thead>
+        <tbody id="tabla-usuarios"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <script src="rest.js"></script>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let yo = null;
+
+    function mostrar(texto, tipo = 'error') {
+      const m = $('mensaje');
+      m.textContent = texto || '';
+      m.className = tipo;
+    }
+
+    async function accion(fn) {
+      try { mostrar(''); await fn(); } catch (e) { mostrar(e.message); }
+    }
+
+    function pintarVista() {
+      $('vista-acceso').classList.toggle('oculto', Boolean(yo));
+      $('vista-panel').classList.toggle('oculto', !yo);
+      if (!yo) return;
+      $('panel-email').textContent = yo.email;
+      $('panel-rol').textContent = yo.rol;
+      const esAdmin = yo.rol === 'administrador';
+      $('zona-admin').classList.toggle('oculto', !esAdmin);
+      if (esAdmin) cargarUsuarios();
+    }
+
+    async function cargarUsuarios() {
+      const usuarios = await Rest.listarUsuarios();
+      const tbody = $('tabla-usuarios');
+      tbody.replaceChildren();
+      for (const u of usuarios) {
+        const fila = document.createElement('tr');
+        for (const dato of [u.email, u.rol, u.estado]) {
+          const td = document.createElement('td');
+          td.textContent = dato; // textContent evita inyección de HTML
+          fila.appendChild(td);
+        }
+        const acciones = document.createElement('td');
+        const bActivo = document.createElement('button');
+        bActivo.textContent = '¿Activo?';
+        bActivo.onclick = () => accion(async () => {
+          const r = await Rest.estaActivo(u.id);
+          mostrar(`${u.email}: ${r.activo ? 'activo' : 'no activo'}`, 'ok');
+        });
+        const bBorrar = document.createElement('button');
+        bBorrar.textContent = 'Eliminar';
+        bBorrar.onclick = () => accion(async () => {
+          if (!confirm(`¿Eliminar a ${u.email}?`)) return;
+          await Rest.eliminarUsuario(u.id);
+          if (u.id === yo.id) { yo = null; pintarVista(); } else { await cargarUsuarios(); }
+        });
+        acciones.append(bActivo, bBorrar);
+        fila.appendChild(acciones);
+        tbody.appendChild(fila);
+      }
+    }
+
+    $('btn-login').onclick = () => accion(async () => {
+      yo = await Rest.login($('login-email').value, $('login-password').value);
+      pintarVista();
+    });
+
+    $('btn-registro').onclick = () => accion(async () => {
+      await Rest.registrar($('reg-email').value, $('reg-password').value);
+      mostrar('Cuenta creada. Ya puedes iniciar sesión.', 'ok');
+    });
+
+    $('btn-logout').onclick = () => accion(async () => {
+      await Rest.logout();
+      yo = null;
+      pintarVista();
+    });
+
+    $('btn-borrar-cuenta').onclick = () => accion(async () => {
+      if (!confirm('¿Seguro que quieres eliminar tu cuenta?')) return;
+      await Rest.eliminarUsuario(yo.id);
+      yo = null;
+      pintarVista();
+    });
+
+    // Mantener la sesión tras recargar
+    (async () => {
+      try { yo = await Rest.sesion(); } catch (_) { yo = null; }
+      pintarVista();
+    })();
+  </script>
+</body>
 </html>
