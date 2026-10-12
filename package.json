@@ -1,0 +1,14 @@
+{
+  "name": "saas-sprint1",
+  "version": "1.0.0",
+  "main": "servidor/api.js",
+  "scripts": {
+    "start": "node servidor/api.js",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.19.2"
+  }
+}
