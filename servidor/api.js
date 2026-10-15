@@ -3,7 +3,7 @@ const express = require('express');
 const session = require('express-session');
 const path = require('path');
 const crypto = require('crypto');
-const { crearServicioUsuarios, ErrorApp } = require('./logica');
+const { crearServicioUsuarios, ErrorApp, calcularEstadoUsuario } = require('./logica');
 const { crearRepoMemoria, crearRepoPostgres } = require('./datos');
 const { log } = require('./logger');
 
@@ -46,6 +46,16 @@ function crearApp({ servicio, store }) {
   app.post('/api/registro', wrap(async (req, res) => {
     res.status(201).json(await servicio.registrar(req.body || {}));
   }));
+
+    // Endpoint público (sin sesión): solo lee la petición, llama a la lógica y responde
+  app.post('/api/prueba/estado', (req, res) => {
+    try {
+      res.status(200).json(calcularEstadoUsuario(req.body || {}));
+    } catch (e) {
+      if (e instanceof ErrorApp) return res.status(400).json({ error: e.message });
+      throw e;
+    }
+  });
 
   app.post('/api/login', wrap(async (req, res) => {
     const usuario = await servicio.iniciarSesion(req.body || {});
@@ -90,6 +100,9 @@ function crearApp({ servicio, store }) {
   }));
 
   app.use((err, req, res, next) => {
+    if (err.type === 'entity.parse.failed') {
+      return res.status(400).json({ error: 'El cuerpo no es un JSON válido' });
+    }
     if (err instanceof ErrorApp) {
       return res.status(err.estado).json({ error: { codigo: err.codigo, mensaje: err.message } });
     }

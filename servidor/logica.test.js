@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { crearServicioUsuarios } = require('./logica');
+const { crearServicioUsuarios, calcularEstadoUsuario } = require('./logica');
 const { crearRepoMemoria } = require('./datos');
 
 function nuevoServicio(opciones = {}) {
@@ -122,5 +122,45 @@ test('un usuario eliminado no puede volver a iniciar sesión', async () => {
   await assert.rejects(
     () => servicio.iniciarSesion({ email: 'ana@test.com', password: 'password123' }),
     { codigo: 'CREDENCIALES_INVALIDAS' }
+  );
+});
+
+test('variante6: local sin confirmar queda pendiente y no puede iniciar sesión', () => {
+  const r = calcularEstadoUsuario({ proveedor: 'local', confirmado: false, eliminado: false });
+  assert.deepEqual(r, { estado: 'pendiente', puedeIniciarSesion: false });
+});
+
+test('variante6: local confirmado está activo y puede iniciar sesión', () => {
+  const r = calcularEstadoUsuario({ proveedor: 'local', confirmado: true, eliminado: false });
+  assert.deepEqual(r, { estado: 'activo', puedeIniciarSesion: true });
+});
+
+test('variante6: oauth está activo aunque no esté confirmado', () => {
+  const r = calcularEstadoUsuario({ proveedor: 'oauth', confirmado: false, eliminado: false });
+  assert.deepEqual(r, { estado: 'activo', puedeIniciarSesion: true });
+});
+
+test('variante6: eliminado gana a cualquier otro dato', () => {
+  for (const proveedor of ['local', 'oauth']) {
+    const r = calcularEstadoUsuario({ proveedor, confirmado: true, eliminado: true });
+    assert.deepEqual(r, { estado: 'eliminado', puedeIniciarSesion: false });
+  }
+});
+
+test('variante6: rechaza un proveedor desconocido', () => {
+  assert.throws(
+    () => calcularEstadoUsuario({ proveedor: 'github', confirmado: true, eliminado: false }),
+    { codigo: 'PROVEEDOR_INVALIDO' }
+  );
+});
+
+test('variante6: rechaza campos que no son booleanos', () => {
+  assert.throws(
+    () => calcularEstadoUsuario({ proveedor: 'local', confirmado: 'si', eliminado: false }),
+    { codigo: 'CAMPO_INVALIDO' }
+  );
+  assert.throws(
+    () => calcularEstadoUsuario({ proveedor: 'local', confirmado: true }),
+    { codigo: 'CAMPO_INVALIDO' }
   );
 });

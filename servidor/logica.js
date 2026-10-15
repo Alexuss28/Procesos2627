@@ -11,6 +11,23 @@ class ErrorApp extends Error {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Regla pura: no accede a la base de datos
+function calcularEstadoUsuario({ proveedor, confirmado, eliminado } = {}) {
+  if (proveedor !== 'local' && proveedor !== 'oauth') {
+    throw new ErrorApp('PROVEEDOR_INVALIDO', 'El proveedor debe ser "local" u "oauth"');
+  }
+  if (typeof confirmado !== 'boolean' || typeof eliminado !== 'boolean') {
+    throw new ErrorApp('CAMPO_INVALIDO', 'Los campos "confirmado" y "eliminado" deben ser booleanos');
+  }
+
+  let estado;
+  if (eliminado) estado = 'eliminado';
+  else if (proveedor === 'oauth' || confirmado) estado = 'activo';
+  else estado = 'pendiente';
+
+  return { estado, puedeIniciarSesion: estado === 'activo' };
+}
+
 function crearServicioUsuarios({ repo, log = () => {}, rondasHash = 10, requiereConfirmacion = false }) {
   const publico = (u) => ({ id: u.id, email: u.email, rol: u.rol, estado: u.estado });
 
@@ -111,4 +128,4 @@ function crearServicioUsuarios({ repo, log = () => {}, rondasHash = 10, requiere
   };
 }
 
-module.exports = { crearServicioUsuarios, ErrorApp };
+module.exports = { crearServicioUsuarios, ErrorApp, calcularEstadoUsuario };
