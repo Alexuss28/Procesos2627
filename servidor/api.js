@@ -5,11 +5,13 @@ const path = require('path');
 const crypto = require('crypto');
 const { crearServicioUsuarios, ErrorApp, calcularEstadoUsuario } = require('./logica');
 const { crearRepoMemoria, crearRepoPostgres } = require('./datos');
+const { crearRepoTurnosMemoria, crearRepoTurnosPostgres } = require('./datos-turnos');
+const { crearServicioTurnos } = require('./logica-turnos');
 const { crearCorreoBrevo } = require('./correo');
 const { crearGoogle } = require('./google');
 const { log } = require('./logger');
 
-function crearApp({ servicio, store, google = null }) {
+function crearApp({ servicio, turnos, store, google = null }) {
   const app = express();
   const produccion = process.env.NODE_ENV === 'production';
   if (produccion) app.set('trust proxy', 1); // Render va detrás de un proxy HTTPS
@@ -46,6 +48,7 @@ function crearApp({ servicio, store, google = null }) {
     next();
   }
 
+  // ---------------------------------------------------------------- Cuentas y acceso
   app.post('/api/registro', wrap(async (req, res) => {
     res.status(201).json(await servicio.registrar(req.body || {}));
   }));
@@ -79,7 +82,7 @@ function crearApp({ servicio, store, google = null }) {
     res.json(usuario);
   }));
 
-  // --- Acceso con Google (son navegaciones del navegador, por eso redirigen en lugar de devolver JSON) ---
+  // Acceso con Google (son navegaciones del navegador, por eso redirigen en lugar de devolver JSON)
   app.get('/api/auth/google', async (req, res) => {
     if (!google) return res.redirect('/?error=oauth_no_configurado');
     try {
@@ -143,6 +146,7 @@ function crearApp({ servicio, store, google = null }) {
     }
   }));
 
+  // ---------------------------------------------------------------- Usuarios
   app.get('/api/usuarios', requiereSesion, wrap(async (req, res) => {
     res.json(await servicio.listar(req.session.usuarioId));
   }));
@@ -160,6 +164,40 @@ function crearApp({ servicio, store, google = null }) {
     res.status(204).end();
   }));
 
+  // ---------------------------------------------------------------- Turnos
+  // Las rutas solo leen la petición, llaman a la lógica y devuelven la respuesta.
+  app.get('/api/turnos/mios', requiereSesion, wrap(async (req, res) => {
+    res.json(await turnos.listarMios(req.session.usuarioId, {
+      desde: req.query.desde, hasta: req.query.hasta,
+    }));
+  }));
+
+  app.get('/api/turnos/equipo', requiereSesion, wrap(async (req, res) => {
+    res.json(await turnos.listarEquipo(req.session.usuarioId, {
+      desde: req.query.desde, hasta: req.query.hasta,
+    }));
+  }));
+
+  app.get('/api/disponibilidad', requiereSesion, wrap(async (req, res) => {
+    res.json(await turnos.disponibilidad(req.session.usuarioId, {
+      inicio: req.query.inicio, fin: req.query.fin,
+    }));
+  }));
+
+  app.post('/api/turnos', requiereSesion, wrap(async (req, res) => {
+    res.status(201).json(await turnos.crearTurno(req.session.usuarioId, req.body || {}));
+  }));
+
+  app.put('/api/turnos/:id', requiereSesion, wrap(async (req, res) => {
+    res.json(await turnos.editarTurno(req.session.usuarioId, req.params.id, req.body || {}));
+  }));
+
+  app.delete('/api/turnos/:id', requiereSesion, wrap(async (req, res) => {
+    await turnos.eliminarTurno(req.session.usuarioId, req.params.id);
+    res.status(204).end();
+  }));
+
+  // ---------------------------------------------------------------- Errores
   app.use((err, req, res, next) => {
     if (err.type === 'entity.parse.failed') {
       return res.status(400).json({ error: 'El cuerpo no es un JSON válido' });
@@ -175,16 +213,19 @@ function crearApp({ servicio, store, google = null }) {
 }
 
 async function arrancar() {
-  let repo, store;
+  let repo, repoTurnos, store;
 
   if (process.env.DATABASE_URL) {
     repo = crearRepoPostgres(process.env.DATABASE_URL);
-    await repo.inicializar();
+    await repo.inicializar();                    // primero usuarios: turnos depende de esa tabla
+    repoTurnos = crearRepoTurnosPostgres(repo.pool);
+    await repoTurnos.inicializar();
     const PgSession = require('connect-pg-simple')(session);
     store = new PgSession({ pool: repo.pool, createTableIfMissing: true });
   } else {
     log('warn', 'DATABASE_URL no definida: usando datos en memoria (solo desarrollo)');
     repo = crearRepoMemoria();
+    repoTurnos = crearRepoTurnosMemoria();
   }
 
   const requiereConfirmacion = process.env.REQUIERE_CONFIRMACION === 'true';
@@ -215,6 +256,7 @@ async function arrancar() {
   }
 
   const servicio = crearServicioUsuarios({ repo, correo, urlBase, log, requiereConfirmacion });
+  const turnos = crearServicioTurnos({ repo: repoTurnos, repoUsuarios: repo, log });
 
   if (process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
     await servicio.asegurarAdministrador(process.env.ADMIN_EMAIL, process.env.ADMIN_PASSWORD);
@@ -223,7 +265,7 @@ async function arrancar() {
   }
 
   const puerto = process.env.PORT || 3000;
-  crearApp({ servicio, store, google }).listen(puerto, () => log('info', 'servidor arrancado', { puerto }));
+  crearApp({ servicio, turnos, store, google }).listen(puerto, () => log('info', 'servidor arrancado', { puerto }));
 }
 
 if (require.main === module) {

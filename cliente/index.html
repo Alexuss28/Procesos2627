@@ -5,12 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mi aplicación</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
-    input, button { padding: .5rem; margin: .25rem 0; }
-    input { display: block; width: 100%; box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; }
+    input, button, select { padding: .5rem; margin: .25rem 0; }
+    input, select { display: block; width: 100%; box-sizing: border-box; }
+    input[type=radio] { display: inline; width: auto; margin-right: .25rem; }
+    label { display: block; margin-top: .5rem; font-size: .9rem; color: #444; }
     .error { color: #b00020; } .ok { color: #1b7f3b; }
     table { width: 100%; border-collapse: collapse; } td, th { border-bottom: 1px solid #ddd; padding: .4rem; text-align: left; }
     .oculto { display: none; }
+    .barra { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
   </style>
 </head>
 <body>
@@ -43,9 +46,52 @@
         <tbody id="tabla-usuarios"></tbody>
       </table>
     </div>
+
+    <section id="zona-turnos" class="oculto">
+      <h2>Turnos</h2>
+      <div class="barra">
+        <button id="t-anterior">&larr; Anterior</button>
+        <strong id="t-semana"></strong>
+        <button id="t-siguiente">Siguiente &rarr;</button>
+        <button id="t-hoy">Hoy</button>
+      </div>
+      <div class="barra">
+        <label id="t-opcion-mios"><input type="radio" name="t-vista" value="mios" checked> Mis turnos</label>
+        <label><input type="radio" name="t-vista" value="equipo"> Equipo</label>
+      </div>
+      <table>
+        <thead><tr><th>Empleado</th><th>Inicio</th><th>Fin</th><th>Nota</th><th></th></tr></thead>
+        <tbody id="t-tabla"></tbody>
+      </table>
+      <p id="t-vacio" class="oculto">No hay turnos esta semana.</p>
+
+      <div id="t-admin" class="oculto">
+        <h3 id="t-form-titulo">Nuevo turno</h3>
+        <label for="t-empleado">Empleado</label>
+        <select id="t-empleado"></select>
+        <label for="t-inicio">Inicio</label>
+        <input id="t-inicio" type="datetime-local">
+        <label for="t-fin">Fin</label>
+        <input id="t-fin" type="datetime-local">
+        <label for="t-nota">Nota (opcional)</label>
+        <input id="t-nota" type="text" maxlength="200">
+        <button id="t-guardar">Crear turno</button>
+        <button id="t-cancelar" class="oculto">Cancelar edición</button>
+      </div>
+
+      <h3>Disponibilidad</h3>
+      <p>Consulta quién está libre en una franja horaria.</p>
+      <label for="t-disp-inicio">Desde</label>
+      <input id="t-disp-inicio" type="datetime-local">
+      <label for="t-disp-fin">Hasta</label>
+      <input id="t-disp-fin" type="datetime-local">
+      <button id="t-buscar-disp">Consultar</button>
+      <ul id="t-disp-resultado"></ul>
+    </section>
   </section>
 
   <script src="rest.js"></script>
+  <script src="turnos.js"></script>
   <script>
     const $ = (id) => document.getElementById(id);
     let yo = null;
@@ -71,12 +117,13 @@
     function pintarVista() {
       $('vista-acceso').classList.toggle('oculto', Boolean(yo));
       $('vista-panel').classList.toggle('oculto', !yo);
-      if (!yo) return;
+      if (!yo) { Turnos.limpiar(); return; }
       $('panel-email').textContent = yo.email;
       $('panel-rol').textContent = yo.rol;
       const esAdmin = yo.rol === 'administrador';
       $('zona-admin').classList.toggle('oculto', !esAdmin);
       if (esAdmin) cargarUsuarios();
+      Turnos.iniciar(yo);
     }
 
     async function cargarUsuarios() {
