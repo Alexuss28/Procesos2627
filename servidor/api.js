@@ -5,9 +5,11 @@ const path = require('path');
 const crypto = require('crypto');
 const { crearServicioUsuarios, ErrorApp, calcularEstadoUsuario } = require('./logica');
 const { crearRepoMemoria, crearRepoPostgres } = require('./datos');
+const { crearCorreoBrevo } = require('./correo');
+const { crearGoogle } = require('./google');
 const { log } = require('./logger');
 
-function crearApp({ servicio, store }) {
+function crearApp({ servicio, store, google = null }) {
   const app = express();
   const produccion = process.env.NODE_ENV === 'production';
   if (produccion) app.set('trust proxy', 1); // Render va detrás de un proxy HTTPS
@@ -18,7 +20,7 @@ function crearApp({ servicio, store }) {
   app.use((req, res, next) => {
     res.on('finish', () => log('info', 'petición', {
       metodo: req.method,
-      ruta: req.originalUrl,
+      ruta: req.path, // sin query string: el token y el código OAuth no deben quedar en los logs
       estado: res.statusCode,
     }));
     next();
@@ -34,8 +36,9 @@ function crearApp({ servicio, store }) {
   app.use(express.static(path.join(__dirname, '..', 'cliente')));
 
   const wrap = (fn) => (req, res, next) => fn(req, res).catch(next);
+  const guardarSesion = (req) => new Promise((ok, ko) => req.session.save((e) => (e ? ko(e) : ok())));
+  const regenerarSesion = (req) => new Promise((ok, ko) => req.session.regenerate((e) => (e ? ko(e) : ok())));
 
-  // Middleware de autenticación: rechaza peticiones sin sesión válida
   function requiereSesion(req, res, next) {
     if (!req.session.usuarioId) {
       return next(new ErrorApp('NO_AUTENTICADO', 'Debes iniciar sesión', 401));
@@ -47,7 +50,7 @@ function crearApp({ servicio, store }) {
     res.status(201).json(await servicio.registrar(req.body || {}));
   }));
 
-    // Endpoint público (sin sesión): solo lee la petición, llama a la lógica y responde
+  // Endpoint público (sin sesión): solo lee la petición, llama a la lógica y responde
   app.post('/api/prueba/estado', (req, res) => {
     try {
       res.status(200).json(calcularEstadoUsuario(req.body || {}));
@@ -57,13 +60,73 @@ function crearApp({ servicio, store }) {
     }
   });
 
+  // Confirmación de cuenta: POST (y no GET) para que un escáner de correo
+  // que abra el enlace no active la cuenta por sí solo
+  app.post('/api/confirmar', wrap(async (req, res) => {
+    const usuario = await servicio.confirmarCuenta((req.body || {}).token);
+    res.json({ email: usuario.email, estado: usuario.estado });
+  }));
+
+  app.post('/api/reenviar-confirmacion', wrap(async (req, res) => {
+    await servicio.reenviarConfirmacion((req.body || {}).email);
+    res.status(204).end();
+  }));
+
   app.post('/api/login', wrap(async (req, res) => {
     const usuario = await servicio.iniciarSesion(req.body || {});
-    // regenerate evita la fijación de sesión
-    await new Promise((ok, ko) => req.session.regenerate((e) => (e ? ko(e) : ok())));
+    await regenerarSesion(req);
     req.session.usuarioId = usuario.id;
     res.json(usuario);
   }));
+
+  // --- Acceso con Google (son navegaciones del navegador, por eso redirigen en lugar de devolver JSON) ---
+  app.get('/api/auth/google', async (req, res) => {
+    if (!google) return res.redirect('/?error=oauth_no_configurado');
+    try {
+      const state = crypto.randomBytes(24).toString('hex');
+      const nonce = crypto.randomBytes(24).toString('hex');
+      const { url, codeVerifier } = await google.iniciar({ state, nonce });
+      req.session.oauth = { state, nonce, codeVerifier };
+      await guardarSesion(req); // la sesión debe estar guardada antes de salir hacia Google
+      res.redirect(url);
+    } catch (e) {
+      log('error', 'no se pudo iniciar el acceso con Google', { motivo: e.message });
+      res.redirect('/?error=oauth_error');
+    }
+  });
+
+  app.get('/api/auth/google/callback', async (req, res) => {
+    const fallo = (codigo) => res.redirect(`/?error=${codigo}`);
+    try {
+      const guardado = req.session.oauth;
+      delete req.session.oauth; // uso único
+      if (req.query.error) return fallo('oauth_cancelado');
+      if (!google || !guardado
+          || typeof req.query.state !== 'string' || req.query.state !== guardado.state
+          || typeof req.query.code !== 'string') {
+        log('warn', 'callback de Google con estado inválido');
+        return fallo('oauth_invalido');
+      }
+      const identidad = await google.identificar({
+        code: req.query.code,
+        codeVerifier: guardado.codeVerifier,
+        nonce: guardado.nonce,
+      });
+      const usuario = await servicio.iniciarSesionConProveedor({
+        proveedor: 'google',
+        proveedorId: identidad.id,
+        email: identidad.email,
+        emailVerificado: identidad.emailVerificado,
+      });
+      await regenerarSesion(req);
+      req.session.usuarioId = usuario.id;
+      res.redirect('/');
+    } catch (e) {
+      if (e instanceof ErrorApp) return fallo(e.codigo.toLowerCase());
+      log('error', 'fallo en el acceso con Google', { motivo: e.message });
+      fallo('oauth_error');
+    }
+  });
 
   app.post('/api/logout', wrap(async (req, res) => {
     await new Promise((ok) => req.session.destroy(() => ok()));
@@ -71,12 +134,10 @@ function crearApp({ servicio, store }) {
     res.status(204).end();
   }));
 
-  // Permite al cliente recuperar la sesión tras recargar la página
   app.get('/api/sesion', requiereSesion, wrap(async (req, res) => {
     try {
       res.json(await servicio.obtenerActor(req.session.usuarioId));
     } catch (e) {
-      // El usuario de la sesión ya no existe (p. ej. eliminado): se invalida
       await new Promise((ok) => req.session.destroy(() => ok()));
       throw e;
     }
@@ -126,11 +187,34 @@ async function arrancar() {
     repo = crearRepoMemoria();
   }
 
-  const servicio = crearServicioUsuarios({
-    repo,
-    log,
-    requiereConfirmacion: process.env.REQUIERE_CONFIRMACION === 'true',
-  });
+  const requiereConfirmacion = process.env.REQUIERE_CONFIRMACION === 'true';
+  const urlBase = (process.env.APP_URL || '').replace(/\/+$/, '');
+
+  let correo = null;
+  if (process.env.BREVO_API_KEY && process.env.MAIL_FROM) {
+    correo = crearCorreoBrevo({
+      apiKey: process.env.BREVO_API_KEY,
+      remitente: process.env.MAIL_FROM,
+      nombreRemitente: process.env.MAIL_FROM_NAME || 'Mi aplicación',
+    });
+  }
+  // Falla al arrancar, no en el primer registro, si la configuración está incompleta
+  if (requiereConfirmacion && (!correo || !urlBase)) {
+    throw new Error('REQUIERE_CONFIRMACION=true exige BREVO_API_KEY, MAIL_FROM y APP_URL');
+  }
+
+  let google = null;
+  if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && urlBase) {
+    google = crearGoogle({
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      urlBase,
+    });
+  } else {
+    log('warn', 'Google OAuth no configurado (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET y APP_URL): el botón no funcionará');
+  }
+
+  const servicio = crearServicioUsuarios({ repo, correo, urlBase, log, requiereConfirmacion });
 
   if (process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
     await servicio.asegurarAdministrador(process.env.ADMIN_EMAIL, process.env.ADMIN_PASSWORD);
@@ -139,7 +223,7 @@ async function arrancar() {
   }
 
   const puerto = process.env.PORT || 3000;
-  crearApp({ servicio, store }).listen(puerto, () => log('info', 'servidor arrancado', { puerto }));
+  crearApp({ servicio, store, google }).listen(puerto, () => log('info', 'servidor arrancado', { puerto }));
 }
 
 if (require.main === module) {

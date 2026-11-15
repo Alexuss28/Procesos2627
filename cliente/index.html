@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Mi SaaS</title>
+  <title>Mi aplicación</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
     input, button { padding: .5rem; margin: .25rem 0; }
@@ -14,7 +14,7 @@
   </style>
 </head>
 <body>
-  <h1>Mi SaaS</h1>
+  <h1>Mi aplicación</h1>
   <p id="mensaje" role="alert"></p>
 
   <section id="vista-acceso">
@@ -22,6 +22,8 @@
     <input id="login-email" type="email" placeholder="Email">
     <input id="login-password" type="password" placeholder="Contraseña">
     <button id="btn-login">Entrar</button>
+    <button id="btn-reenviar" class="oculto">Reenviar correo de confirmación</button>
+    <button id="btn-google">Continuar con Google</button>
 
     <h2>Crear cuenta</h2>
     <input id="reg-email" type="email" placeholder="Email">
@@ -55,7 +57,15 @@
     }
 
     async function accion(fn) {
-      try { mostrar(''); await fn(); } catch (e) { mostrar(e.message); }
+      $('btn-reenviar').classList.add('oculto');
+      try {
+        mostrar('');
+        await fn();
+      } catch (e) {
+        mostrar(e.message);
+        // Si la cuenta está pendiente se ofrece reenviar el correo
+        if (e.codigo === 'CUENTA_PENDIENTE') $('btn-reenviar').classList.remove('oculto');
+      }
     }
 
     function pintarVista() {
@@ -106,9 +116,18 @@
     });
 
     $('btn-registro').onclick = () => accion(async () => {
-      await Rest.registrar($('reg-email').value, $('reg-password').value);
-      mostrar('Cuenta creada. Ya puedes iniciar sesión.', 'ok');
+      const u = await Rest.registrar($('reg-email').value, $('reg-password').value);
+      mostrar(u.estado === 'pendiente'
+        ? 'Cuenta creada. Te hemos enviado un correo de confirmación (revisa también la carpeta de spam).'
+        : 'Cuenta creada. Ya puedes iniciar sesión.', 'ok');
     });
+
+    $('btn-reenviar').onclick = () => accion(async () => {
+      await Rest.reenviarConfirmacion($('login-email').value);
+      mostrar('Si la cuenta existe y está pendiente, te hemos enviado un nuevo correo.', 'ok');
+    });
+
+    $('btn-google').onclick = () => { location.href = Rest.urlAccesoGoogle; };
 
     $('btn-logout').onclick = () => accion(async () => {
       await Rest.logout();
@@ -123,8 +142,29 @@
       pintarVista();
     });
 
-    // Mantener la sesión tras recargar
+    // Mensajes para los códigos de error que devuelve el servidor tras volver de Google
+    const MENSAJES_OAUTH = {
+      oauth_cancelado: 'Has cancelado el acceso con Google.',
+      oauth_invalido: 'No se pudo validar el acceso con Google. Inténtalo de nuevo.',
+      oauth_error: 'Ha ocurrido un error con Google. Inténtalo de nuevo más tarde.',
+      oauth_no_configurado: 'El acceso con Google no está disponible ahora mismo.',
+      email_en_uso_local: 'Ya existe una cuenta con ese correo registrada con contraseña. Inicia sesión con tu contraseña.',
+      email_no_verificado: 'Google indica que ese correo no está verificado.',
+    };
+
+    // Al cargar: mostrar errores de Google, confirmar la cuenta si llega con ?token=... y recuperar la sesión
     (async () => {
+      const params = new URLSearchParams(location.search);
+      const error = params.get('error');
+      const token = params.get('token');
+      if (error || token) history.replaceState(null, '', location.pathname); // limpia la barra de direcciones
+      if (error) mostrar(MENSAJES_OAUTH[error] || 'No se pudo completar el acceso con Google.');
+      if (token) {
+        await accion(async () => {
+          await Rest.confirmar(token);
+          mostrar('Cuenta confirmada. Ya puedes iniciar sesión.', 'ok');
+        });
+      }
       try { yo = await Rest.sesion(); } catch (_) { yo = null; }
       pintarVista();
     })();

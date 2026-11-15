@@ -11,6 +11,7 @@ const Rest = (() => {
     if (!res.ok) {
       const err = new Error((datos && datos.error && datos.error.mensaje) || `Error inesperado (${res.status})`);
       err.estado = res.status;
+      err.codigo = datos && datos.error && datos.error.codigo;
       throw err;
     }
     return datos;
@@ -18,7 +19,10 @@ const Rest = (() => {
 
   return {
     registrar: (email, password) => peticion('POST', '/api/registro', { email, password }),
+    confirmar: (token) => peticion('POST', '/api/confirmar', { token }),
+    reenviarConfirmacion: (email) => peticion('POST', '/api/reenviar-confirmacion', { email }),
     login: (email, password) => peticion('POST', '/api/login', { email, password }),
+    urlAccesoGoogle: '/api/auth/google', // es una navegación del navegador, no un fetch
     logout: () => peticion('POST', '/api/logout'),
     sesion: () => peticion('GET', '/api/sesion'),
     listarUsuarios: () => peticion('GET', '/api/usuarios'),
