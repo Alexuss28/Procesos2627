@@ -37,10 +37,29 @@ const Rest = (() => {
 
     // Turnos
     misTurnos: (desde, hasta) => peticion('GET', `/api/turnos/mios${rango(desde, hasta, 'desde', 'hasta')}`),
-    turnosEquipo: (desde, hasta) => peticion('GET', `/api/turnos/equipo${rango(desde, hasta, 'desde', 'hasta')}`),
-    disponibilidad: (inicio, fin) => peticion('GET', `/api/disponibilidad${rango(inicio, fin, 'inicio', 'fin')}`),
-    crearTurno: (turno) => peticion('POST', '/api/turnos', turno),
+    turnosEquipo: (grupoId, desde, hasta) =>
+      peticion('GET', `/api/grupos/${encodeURIComponent(grupoId)}/turnos${rango(desde, hasta, 'desde', 'hasta')}`),
+    disponibilidad: (grupoId, inicio, fin) =>
+      peticion('GET', `/api/grupos/${encodeURIComponent(grupoId)}/disponibilidad${rango(inicio, fin, 'inicio', 'fin')}`),
+    crearTurno: (grupoId, turno) => peticion('POST', `/api/grupos/${encodeURIComponent(grupoId)}/turnos`, turno),
     editarTurno: (id, turno) => peticion('PUT', `/api/turnos/${encodeURIComponent(id)}`, turno),
     eliminarTurno: (id) => peticion('DELETE', `/api/turnos/${encodeURIComponent(id)}`),
+    
+    // Grupos e invitaciones
+    misGrupos: () => peticion('GET', '/api/grupos'),
+    crearGrupo: (nombre) => peticion('POST', '/api/grupos', { nombre }),
+    obtenerGrupo: (id) => peticion('GET', `/api/grupos/${encodeURIComponent(id)}`),
+    eliminarGrupo: (id) => peticion('DELETE', `/api/grupos/${encodeURIComponent(id)}`),
+    salirDelGrupo: (id) => peticion('POST', `/api/grupos/${encodeURIComponent(id)}/salir`),
+    expulsar: (grupoId, usuarioId) =>
+      peticion('DELETE', `/api/grupos/${encodeURIComponent(grupoId)}/miembros/${encodeURIComponent(usuarioId)}`),
+    invitacionesGrupo: (grupoId) => peticion('GET', `/api/grupos/${encodeURIComponent(grupoId)}/invitaciones`),
+    invitar: (grupoId, email) =>
+      peticion('POST', `/api/grupos/${encodeURIComponent(grupoId)}/invitaciones`, { email }),
+    cancelarInvitacion: (grupoId, invitacionId) =>
+      peticion('DELETE', `/api/grupos/${encodeURIComponent(grupoId)}/invitaciones/${encodeURIComponent(invitacionId)}`),
+    misInvitaciones: () => peticion('GET', '/api/invitaciones'),
+    aceptarInvitacion: (id) => peticion('POST', `/api/invitaciones/${encodeURIComponent(id)}/aceptar`),
+    rechazarInvitacion: (id) => peticion('POST', `/api/invitaciones/${encodeURIComponent(id)}/rechazar`),
   };
 })();

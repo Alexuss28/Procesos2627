@@ -14,6 +14,7 @@
     table { width: 100%; border-collapse: collapse; } td, th { border-bottom: 1px solid #ddd; padding: .4rem; text-align: left; }
     .oculto { display: none; }
     .barra { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+    li button { margin-left: .5rem; }
   </style>
 </head>
 <body>
@@ -39,59 +40,102 @@
     <button id="btn-logout">Cerrar sesión</button>
     <button id="btn-borrar-cuenta">Eliminar mi cuenta</button>
 
+    <section id="zona-grupos" class="oculto">
+      <h2>Mis grupos de trabajo</h2>
+
+      <div id="g-invitaciones" class="oculto">
+        <h3>Invitaciones recibidas</h3>
+        <ul id="g-lista-invitaciones"></ul>
+      </div>
+
+      <div id="g-vista-lista">
+        <ul id="g-lista"></ul>
+        <p id="g-vacio" class="oculto">Todavía no perteneces a ningún grupo. Crea el tuyo o espera una invitación.</p>
+        <h3>Crear un grupo</h3>
+        <label for="g-nombre">Nombre del grupo</label>
+        <input id="g-nombre" type="text" maxlength="60" placeholder="Por ejemplo: Cafetería Sol">
+        <button id="g-crear">Crear grupo</button>
+      </div>
+
+      <div id="g-vista-detalle" class="oculto">
+        <button id="g-volver">&larr; Volver a mis grupos</button>
+        <h3 id="g-titulo"></h3>
+        <p id="g-rol"></p>
+
+        <h4>Miembros</h4>
+        <table>
+          <thead><tr><th>Correo</th><th>Rol</th><th></th></tr></thead>
+          <tbody id="g-miembros"></tbody>
+        </table>
+
+        <section id="zona-turnos" class="oculto">
+          <h3>Turnos</h3>
+          <div class="barra">
+            <button id="t-anterior">&larr; Anterior</button>
+            <strong id="t-semana"></strong>
+            <button id="t-siguiente">Siguiente &rarr;</button>
+            <button id="t-hoy">Hoy</button>
+          </div>
+          <div class="barra">
+            <label><input type="radio" name="t-vista" value="equipo" checked> Equipo del grupo</label>
+            <label><input type="radio" name="t-vista" value="mios"> Mis turnos (todos mis grupos)</label>
+          </div>
+          <table>
+            <thead><tr><th>Empleado</th><th>Grupo</th><th>Inicio</th><th>Fin</th><th>Nota</th><th></th></tr></thead>
+            <tbody id="t-tabla"></tbody>
+          </table>
+          <p id="t-vacio" class="oculto">No hay turnos esta semana.</p>
+
+          <div id="t-admin" class="oculto">
+            <h4 id="t-form-titulo">Nuevo turno</h4>
+            <p id="t-sin-empleados" class="oculto">Aún no hay empleados en el grupo. Invítalos para poder asignarles turnos.</p>
+            <label for="t-empleado">Empleado</label>
+            <select id="t-empleado"></select>
+            <label for="t-inicio">Inicio</label>
+            <input id="t-inicio" type="datetime-local">
+            <label for="t-fin">Fin</label>
+            <input id="t-fin" type="datetime-local">
+            <label for="t-nota">Nota (opcional)</label>
+            <input id="t-nota" type="text" maxlength="200">
+            <button id="t-guardar">Crear turno</button>
+            <button id="t-cancelar" class="oculto">Cancelar edición</button>
+          </div>
+
+          <h4>Disponibilidad</h4>
+          <p>Consulta qué empleados del grupo están libres en una franja horaria.</p>
+          <label for="t-disp-inicio">Desde</label>
+          <input id="t-disp-inicio" type="datetime-local">
+          <label for="t-disp-fin">Hasta</label>
+          <input id="t-disp-fin" type="datetime-local">
+          <button id="t-buscar-disp">Consultar</button>
+          <ul id="t-disp-resultado"></ul>
+        </section>
+
+        <div id="g-zona-encargado" class="oculto">
+          <h4>Invitar a una persona</h4>
+          <label for="g-invitar-email">Correo de la persona</label>
+          <input id="g-invitar-email" type="email" placeholder="empleado@correo.com">
+          <button id="g-invitar">Enviar invitación</button>
+          <h4>Invitaciones pendientes</h4>
+          <ul id="g-pendientes"></ul>
+          <button id="g-eliminar-grupo">Eliminar grupo</button>
+        </div>
+        <button id="g-salir" class="oculto">Salir del grupo</button>
+      </div>
+    </section>
+
     <div id="zona-admin" class="oculto">
-      <h2>Usuarios</h2>
+      <h2>Administración de la web: usuarios</h2>
       <table>
         <thead><tr><th>Email</th><th>Rol</th><th>Estado</th><th></th></tr></thead>
         <tbody id="tabla-usuarios"></tbody>
       </table>
     </div>
-
-    <section id="zona-turnos" class="oculto">
-      <h2>Turnos</h2>
-      <div class="barra">
-        <button id="t-anterior">&larr; Anterior</button>
-        <strong id="t-semana"></strong>
-        <button id="t-siguiente">Siguiente &rarr;</button>
-        <button id="t-hoy">Hoy</button>
-      </div>
-      <div class="barra">
-        <label id="t-opcion-mios"><input type="radio" name="t-vista" value="mios" checked> Mis turnos</label>
-        <label><input type="radio" name="t-vista" value="equipo"> Equipo</label>
-      </div>
-      <table>
-        <thead><tr><th>Empleado</th><th>Inicio</th><th>Fin</th><th>Nota</th><th></th></tr></thead>
-        <tbody id="t-tabla"></tbody>
-      </table>
-      <p id="t-vacio" class="oculto">No hay turnos esta semana.</p>
-
-      <div id="t-admin" class="oculto">
-        <h3 id="t-form-titulo">Nuevo turno</h3>
-        <label for="t-empleado">Empleado</label>
-        <select id="t-empleado"></select>
-        <label for="t-inicio">Inicio</label>
-        <input id="t-inicio" type="datetime-local">
-        <label for="t-fin">Fin</label>
-        <input id="t-fin" type="datetime-local">
-        <label for="t-nota">Nota (opcional)</label>
-        <input id="t-nota" type="text" maxlength="200">
-        <button id="t-guardar">Crear turno</button>
-        <button id="t-cancelar" class="oculto">Cancelar edición</button>
-      </div>
-
-      <h3>Disponibilidad</h3>
-      <p>Consulta quién está libre en una franja horaria.</p>
-      <label for="t-disp-inicio">Desde</label>
-      <input id="t-disp-inicio" type="datetime-local">
-      <label for="t-disp-fin">Hasta</label>
-      <input id="t-disp-fin" type="datetime-local">
-      <button id="t-buscar-disp">Consultar</button>
-      <ul id="t-disp-resultado"></ul>
-    </section>
   </section>
 
   <script src="rest.js"></script>
   <script src="turnos.js"></script>
+  <script src="grupos.js"></script>
   <script>
     const $ = (id) => document.getElementById(id);
     let yo = null;
@@ -117,13 +161,13 @@
     function pintarVista() {
       $('vista-acceso').classList.toggle('oculto', Boolean(yo));
       $('vista-panel').classList.toggle('oculto', !yo);
-      if (!yo) { Turnos.limpiar(); return; }
+      if (!yo) { Grupos.limpiar(); return; }
       $('panel-email').textContent = yo.email;
-      $('panel-rol').textContent = yo.rol;
+      $('panel-rol').textContent = yo.rol === 'administrador' ? 'administrador de la web' : 'usuario';
       const esAdmin = yo.rol === 'administrador';
       $('zona-admin').classList.toggle('oculto', !esAdmin);
       if (esAdmin) cargarUsuarios();
-      Turnos.iniciar(yo);
+      Grupos.iniciar(yo);
     }
 
     async function cargarUsuarios() {
@@ -183,7 +227,7 @@
     });
 
     $('btn-borrar-cuenta').onclick = () => accion(async () => {
-      if (!confirm('¿Seguro que quieres eliminar tu cuenta?')) return;
+      if (!confirm('¿Seguro que quieres eliminar tu cuenta? Se borrarán también los grupos de los que eres encargado.')) return;
       await Rest.eliminarUsuario(yo.id);
       yo = null;
       pintarVista();
