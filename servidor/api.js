@@ -9,11 +9,14 @@ const { crearRepoTurnosMemoria, crearRepoTurnosPostgres } = require('./datos-tur
 const { crearServicioTurnos } = require('./logica-turnos');
 const { crearRepoGruposMemoria, crearRepoGruposPostgres } = require('./datos-grupos');
 const { crearServicioGrupos } = require('./logica-grupos');
+const { crearRepoSolicitudesMemoria, crearRepoSolicitudesPostgres } = require('./datos-solicitudes');
+const { crearServicioSolicitudes } = require('./logica-solicitudes');
+const { crearServicioHoras } = require('./logica-horas');
 const { crearCorreoBrevo } = require('./correo');
 const { crearGoogle } = require('./google');
 const { log } = require('./logger');
 
-function crearApp({ servicio, turnos, grupos, store, google = null }) {
+function crearApp({ servicio, turnos, grupos, solicitudes, horas, store, google = null }) {
   const app = express();
   const produccion = process.env.NODE_ENV === 'production';
   if (produccion) app.set('trust proxy', 1); // Render va detrás de un proxy HTTPS
@@ -254,6 +257,37 @@ function crearApp({ servicio, turnos, grupos, store, google = null }) {
     res.status(204).end();
   }));
 
+  // ---------------------------------------------------------------- Solicitudes de cambio y horas
+  app.get('/api/grupos/:id/solicitudes', requiereSesion, wrap(async (req, res) => {
+    res.json(await solicitudes.listarSolicitudes(req.session.usuarioId, req.params.id, {
+      estado: req.query.estado,
+    }));
+  }));
+
+  app.post('/api/grupos/:id/solicitudes', requiereSesion, wrap(async (req, res) => {
+    res.status(201).json(await solicitudes.crearSolicitud(req.session.usuarioId, req.params.id, req.body || {}));
+  }));
+
+  app.post('/api/solicitudes/:id/cancelar', requiereSesion, wrap(async (req, res) => {
+    res.json(await solicitudes.cancelarSolicitud(req.session.usuarioId, req.params.id));
+  }));
+
+  app.post('/api/solicitudes/:id/aprobar', requiereSesion, wrap(async (req, res) => {
+    res.json(await solicitudes.aprobarSolicitud(req.session.usuarioId, req.params.id, req.body || {}));
+  }));
+
+  app.post('/api/solicitudes/:id/rechazar', requiereSesion, wrap(async (req, res) => {
+    res.json(await solicitudes.rechazarSolicitud(req.session.usuarioId, req.params.id, req.body || {}));
+  }));
+
+  app.get('/api/horas', requiereSesion, wrap(async (req, res) => {
+    res.json(await horas.horasMias(req.session.usuarioId, { mes: req.query.mes }));
+  }));
+
+  app.get('/api/grupos/:id/horas', requiereSesion, wrap(async (req, res) => {
+    res.json(await horas.horasDelGrupo(req.session.usuarioId, req.params.id, { mes: req.query.mes }));
+  }));
+
   // ---------------------------------------------------------------- Errores
   app.use((err, req, res, next) => {
     if (err.type === 'entity.parse.failed') {
@@ -270,7 +304,7 @@ function crearApp({ servicio, turnos, grupos, store, google = null }) {
 }
 
 async function arrancar() {
-  let repo, repoGrupos, repoTurnos, store;
+  let repo, repoGrupos, repoTurnos, repoSolicitudes, store;
 
   if (process.env.DATABASE_URL) {
     repo = crearRepoPostgres(process.env.DATABASE_URL);
@@ -279,6 +313,8 @@ async function arrancar() {
     await repoGrupos.inicializar();
     repoTurnos = crearRepoTurnosPostgres(repo.pool);
     await repoTurnos.inicializar();
+    repoSolicitudes = crearRepoSolicitudesPostgres(repo.pool);
+    await repoSolicitudes.inicializar();
     const PgSession = require('connect-pg-simple')(session);
     store = new PgSession({ pool: repo.pool, createTableIfMissing: true });
   } else {
@@ -286,6 +322,7 @@ async function arrancar() {
     repo = crearRepoMemoria();
     repoGrupos = crearRepoGruposMemoria();
     repoTurnos = crearRepoTurnosMemoria();
+    repoSolicitudes = crearRepoSolicitudesMemoria({ repoTurnos });
   }
 
   const requiereConfirmacion = process.env.REQUIERE_CONFIRMACION === 'true';
@@ -318,6 +355,10 @@ async function arrancar() {
   const servicio = crearServicioUsuarios({ repo, correo, urlBase, log, requiereConfirmacion });
   const turnos = crearServicioTurnos({ repo: repoTurnos, repoGrupos, repoUsuarios: repo, log });
   const grupos = crearServicioGrupos({ repo: repoGrupos, repoUsuarios: repo, repoTurnos, log });
+  const solicitudes = crearServicioSolicitudes({
+    repo: repoSolicitudes, repoTurnos, repoGrupos, repoUsuarios: repo, log,
+  });
+  const horas = crearServicioHoras({ repoTurnos, repoGrupos, repoUsuarios: repo });
 
   if (process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
     await servicio.asegurarAdministrador(process.env.ADMIN_EMAIL, process.env.ADMIN_PASSWORD);
@@ -326,7 +367,7 @@ async function arrancar() {
   }
 
   const puerto = process.env.PORT || 3000;
-  crearApp({ servicio, turnos, grupos, store, google }).listen(puerto, () => log('info', 'servidor arrancado', { puerto }));
+  crearApp({ servicio, turnos, grupos, solicitudes, horas, store, google }).listen(puerto, () => log('info', 'servidor arrancado', { puerto }));
 }
 
 if (require.main === module) {

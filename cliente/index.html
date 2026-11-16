@@ -111,6 +111,54 @@
           <ul id="t-disp-resultado"></ul>
         </section>
 
+        <section id="zona-solicitudes" class="oculto">
+          <h3>Solicitudes de cambio de turno</h3>
+
+          <div id="s-formulario" class="oculto">
+            <h4>Pedir un cambio</h4>
+            <label for="s-tipo">Tipo de cambio</label>
+            <select id="s-tipo">
+              <option value="cesion">Ceder mi turno a un compañero</option>
+              <option value="intercambio">Intercambiar mi turno por uno de un compañero</option>
+            </select>
+            <label for="s-turno">Mi turno</label>
+            <select id="s-turno"></select>
+            <label for="s-companero">Compañero</label>
+            <select id="s-companero"></select>
+            <div id="s-zona-destino" class="oculto">
+              <label for="s-destino">Turno del compañero</label>
+              <select id="s-destino"></select>
+            </div>
+            <label for="s-motivo">Motivo (opcional)</label>
+            <input id="s-motivo" type="text" maxlength="200">
+            <button id="s-enviar">Enviar solicitud</button>
+          </div>
+
+          <table>
+            <thead>
+              <tr><th>Tipo</th><th>Solicita</th><th>Compañero</th><th>Turno</th><th>A cambio</th><th>Motivo</th><th>Estado</th><th></th></tr>
+            </thead>
+            <tbody id="s-tabla"></tbody>
+          </table>
+          <p id="s-vacio" class="oculto">No hay solicitudes.</p>
+        </section>
+
+        <section id="zona-horas" class="oculto">
+          <h3>Horas trabajadas</h3>
+          <label for="h-mes">Mes (AAAA-MM)</label>
+          <input id="h-mes" type="month" placeholder="AAAA-MM" pattern="\d{4}-\d{2}">
+          <button id="h-ver">Consultar</button>
+          <p id="h-mias"></p>
+          <ul id="h-mias-grupos"></ul>
+          <div id="h-zona-equipo" class="oculto">
+            <h4>Horas del equipo</h4>
+            <table>
+              <thead><tr><th>Empleado</th><th>Horas</th></tr></thead>
+              <tbody id="h-equipo"></tbody>
+            </table>
+          </div>
+        </section>
+
         <div id="g-zona-encargado" class="oculto">
           <h4>Invitar a una persona</h4>
           <label for="g-invitar-email">Correo de la persona</label>
@@ -135,6 +183,8 @@
 
   <script src="rest.js"></script>
   <script src="turnos.js"></script>
+  <script src="solicitudes.js"></script>
+  <script src="horas.js"></script>
   <script src="grupos.js"></script>
   <script>
     const $ = (id) => document.getElementById(id);
