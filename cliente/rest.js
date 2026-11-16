@@ -61,5 +61,20 @@ const Rest = (() => {
     misInvitaciones: () => peticion('GET', '/api/invitaciones'),
     aceptarInvitacion: (id) => peticion('POST', `/api/invitaciones/${encodeURIComponent(id)}/aceptar`),
     rechazarInvitacion: (id) => peticion('POST', `/api/invitaciones/${encodeURIComponent(id)}/rechazar`),
+
+    // Solicitudes de cambio de turno
+    solicitudes: (grupoId) => peticion('GET', `/api/grupos/${encodeURIComponent(grupoId)}/solicitudes`),
+    crearSolicitud: (grupoId, solicitud) =>
+      peticion('POST', `/api/grupos/${encodeURIComponent(grupoId)}/solicitudes`, solicitud),
+    cancelarSolicitud: (id) => peticion('POST', `/api/solicitudes/${encodeURIComponent(id)}/cancelar`),
+    aprobarSolicitud: (id, comentario) =>
+      peticion('POST', `/api/solicitudes/${encodeURIComponent(id)}/aprobar`, { comentario }),
+    rechazarSolicitud: (id, comentario) =>
+      peticion('POST', `/api/solicitudes/${encodeURIComponent(id)}/rechazar`, { comentario }),
+
+    // Horas trabajadas
+    horasMias: (mes) => peticion('GET', `/api/horas?mes=${encodeURIComponent(mes)}`),
+    horasGrupo: (grupoId, mes) =>
+      peticion('GET', `/api/grupos/${encodeURIComponent(grupoId)}/horas?mes=${encodeURIComponent(mes)}`),
   };
 })();

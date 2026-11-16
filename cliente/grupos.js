@@ -60,6 +60,8 @@ const Grupos = (() => {
 
   function mostrarLista() {
     Turnos.cerrar();
+    Solicitudes.cerrar();
+    Horas.cerrar();
     grupoActual = null;
     q('g-vista-lista').classList.remove('oculto');
     q('g-invitaciones').classList.remove('oculto');
@@ -98,6 +100,8 @@ const Grupos = (() => {
 
     if (esEncargado) await cargarPendientes();
     await Turnos.abrir(grupoActual, yo);
+    await Solicitudes.abrir(grupoActual, yo);
+    await Horas.abrir(grupoActual, yo);
   }
 
   async function cargarPendientes() {
@@ -172,6 +176,8 @@ const Grupos = (() => {
       yo = null;
       grupoActual = null;
       Turnos.cerrar();
+      Solicitudes.cerrar();
+      Horas.cerrar();
       q('zona-grupos').classList.add('oculto');
     },
   };
