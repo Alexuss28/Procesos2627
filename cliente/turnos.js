@@ -1,13 +1,16 @@
-// Presentación de los turnos. Habla con el servidor solo a través de Rest (rest.js)
+// Presentación de los turnos de un grupo. Habla con el servidor solo a través de Rest (rest.js)
 // y usa los helpers mostrar() y accion() definidos en index.html.
+// Grupos.abrir() la activa con Turnos.abrir(grupo, usuario) y Turnos.cerrar() al salir del grupo.
 const Turnos = (() => {
   const q = (id) => document.getElementById(id);
 
   let yo = null;
-  let lunes = null;   // inicio (Date) de la semana que se muestra
+  let grupo = null;    // { id, nombre, miRol, miembros } del grupo abierto
+  let lunes = null;    // inicio (Date) de la semana que se muestra
   let editando = null; // id del turno que el encargado está editando
+  let eventosRegistrados = false;
 
-  const esEncargado = () => Boolean(yo) && yo.rol === 'administrador';
+  const esEncargado = () => Boolean(grupo) && grupo.miRol === 'encargado';
   const vistaActual = () => document.querySelector('input[name="t-vista"]:checked').value;
 
   // ---- Fechas: el servidor trabaja en UTC (ISO); el navegador las muestra en la hora local ----
@@ -41,7 +44,7 @@ const Turnos = (() => {
     return td;
   }
 
-  function pintarTabla(lista) {
+  function pintarTabla(lista, vista) {
     const tbody = q('t-tabla');
     tbody.replaceChildren();
     q('t-vacio').classList.toggle('oculto', lista.length > 0);
@@ -50,12 +53,14 @@ const Turnos = (() => {
       const fila = document.createElement('tr');
       fila.append(
         celda(t.empleadoEmail || yo.email),
+        celda(vista === 'equipo' ? grupo.nombre : (t.grupoNombre || '—')),
         celda(fmtFechaHora(t.inicio)),
         celda(fmtFechaHora(t.fin)),
         celda(t.nota || '')
       );
-      if (esEncargado()) {
-        const acciones = document.createElement('td');
+      const acciones = document.createElement('td');
+      // Solo el encargado edita, y solo los turnos de este grupo
+      if (esEncargado() && vista === 'equipo') {
         const bEditar = document.createElement('button');
         bEditar.textContent = 'Editar';
         bEditar.onclick = () => empezarEdicion(t);
@@ -68,10 +73,8 @@ const Turnos = (() => {
           await cargar();
         });
         acciones.append(bEditar, bBorrar);
-        fila.appendChild(acciones);
-      } else {
-        fila.appendChild(document.createElement('td'));
       }
+      fila.appendChild(acciones);
       tbody.appendChild(fila);
     }
   }
@@ -80,21 +83,23 @@ const Turnos = (() => {
     const hasta = sumarDias(lunes, 7);
     q('t-semana').textContent =
       `${lunes.toLocaleDateString('es-ES')} – ${sumarDias(lunes, 6).toLocaleDateString('es-ES')}`;
-    const lista = vistaActual() === 'mios'
+    const vista = vistaActual();
+    const lista = vista === 'mios'
       ? await Rest.misTurnos(lunes.toISOString(), hasta.toISOString())
-      : await Rest.turnosEquipo(lunes.toISOString(), hasta.toISOString());
-    pintarTabla(lista);
+      : await Rest.turnosEquipo(grupo.id, lunes.toISOString(), hasta.toISOString());
+    pintarTabla(lista, vista);
   }
 
   // ---- Formulario del encargado ----
-  async function cargarEmpleados() {
-    const usuarios = await Rest.listarUsuarios();
+  function llenarEmpleados() {
     const select = q('t-empleado');
     select.replaceChildren();
-    for (const u of usuarios.filter((x) => x.rol === 'usuario' && x.estado === 'activo')) {
+    const empleados = grupo.miembros.filter((m) => m.rol === 'empleado');
+    q('t-sin-empleados').classList.toggle('oculto', empleados.length > 0);
+    for (const m of empleados) {
       const op = document.createElement('option');
-      op.value = u.id;
-      op.textContent = u.email;
+      op.value = m.usuarioId;
+      op.textContent = m.email;
       select.appendChild(op);
     }
   }
@@ -141,7 +146,7 @@ const Turnos = (() => {
         await Rest.editarTurno(editando, cuerpo);
         mostrar('Turno actualizado.', 'ok');
       } else {
-        await Rest.crearTurno(cuerpo);
+        await Rest.crearTurno(grupo.id, cuerpo);
         mostrar('Turno creado.', 'ok');
       }
       cancelarEdicion();
@@ -150,7 +155,8 @@ const Turnos = (() => {
     q('t-cancelar').onclick = cancelarEdicion;
 
     q('t-buscar-disp').onclick = () => accion(async () => {
-      const libres = await Rest.disponibilidad(desdeInput(q('t-disp-inicio').value), desdeInput(q('t-disp-fin').value));
+      const libres = await Rest.disponibilidad(
+        grupo.id, desdeInput(q('t-disp-inicio').value), desdeInput(q('t-disp-fin').value));
       const ul = q('t-disp-resultado');
       ul.replaceChildren();
       if (!libres.length) {
@@ -167,27 +173,28 @@ const Turnos = (() => {
     });
   }
 
-  let eventosRegistrados = false;
-
   return {
-    // Se llama desde index.html cuando hay una sesión iniciada
-    async iniciar(usuario) {
+    // Se llama desde Grupos.abrir() con el detalle del grupo y el usuario de la sesión
+    async abrir(detalleGrupo, usuario) {
       yo = usuario;
+      grupo = detalleGrupo;
       if (!eventosRegistrados) { registrarEventos(); eventosRegistrados = true; }
       q('zona-turnos').classList.remove('oculto');
       q('t-admin').classList.toggle('oculto', !esEncargado());
-      // El encargado no tiene turnos propios: su vista por defecto es la del equipo
-      q('t-opcion-mios').classList.toggle('oculto', esEncargado());
-      document.querySelector(`input[name="t-vista"][value="${esEncargado() ? 'equipo' : 'mios'}"]`).checked = true;
+      llenarEmpleados();
+      document.querySelector('input[name="t-vista"][value="equipo"]').checked = true;
       lunes = lunesDe(new Date());
       cancelarEdicion();
-      await accion(async () => {
-        if (esEncargado()) await cargarEmpleados();
+      q('t-disp-resultado').replaceChildren();
+      try {
         await cargar();
-      });
+      } catch (e) {
+        mostrar(e.message); // sin accion(): no se borra el mensaje que haya mostrado quien nos llama
+      }
     },
-    limpiar() {
-      yo = null;
+    cerrar() {
+      grupo = null;
+      editando = null;
       q('zona-turnos').classList.add('oculto');
     },
   };

@@ -15,35 +15,56 @@ const seSolapan = (aIni, aFin, bIni, bFin) => aIni < bFin && bIni < aFin;
 const iso = (fecha) => new Date(fecha).toISOString();
 const publico = (t, conNota) => ({
   id: t.id,
+  grupoId: t.grupoId,
   empleadoId: t.empleadoId,
   inicio: iso(t.inicio),
   fin: iso(t.fin),
   nota: conNota ? (t.nota || null) : null,
 });
 
-function crearServicioTurnos({ repo, repoUsuarios, log = () => {} }) {
+// Los turnos viven dentro de un grupo. Los permisos no salen del rol global de la cuenta,
+// sino de la pertenencia al grupo: el encargado gestiona, los empleados consultan.
+function crearServicioTurnos({ repo, repoGrupos, repoUsuarios, log = () => {} }) {
   async function obtenerActor(actorId) {
     const actor = actorId ? await repoUsuarios.buscarPorId(actorId) : null;
     if (!actor) throw new ErrorApp('NO_AUTENTICADO', 'Debes iniciar sesión', 401);
     return actor;
   }
 
-  async function exigirEncargado(actorId) {
-    const actor = await obtenerActor(actorId);
-    if (actor.rol !== 'administrador') {
-      log('warn', 'acceso denegado: se requiere el encargado', { actorId });
-      throw new ErrorApp('PROHIBIDO', 'Solo el encargado puede gestionar los turnos', 403);
-    }
-    return actor;
+  // Si el grupo no existe o no eres miembro, la respuesta es la misma (404)
+  async function exigirMiembro(actorId, grupoId) {
+    const grupo = typeof grupoId === 'string' ? await repoGrupos.buscarGrupo(grupoId) : null;
+    const membresia = grupo ? await repoGrupos.buscarMembresia(grupoId, actorId) : null;
+    if (!grupo || !membresia) throw new ErrorApp('NO_ENCONTRADO', 'El grupo no existe', 404);
+    return membresia;
   }
 
-  async function exigirEmpleado(empleadoId) {
-    const empleado = typeof empleadoId === 'string' ? await repoUsuarios.buscarPorId(empleadoId) : null;
-    if (!empleado) throw new ErrorApp('NO_ENCONTRADO', 'El empleado no existe', 404);
-    if (empleado.rol !== 'usuario' || empleado.estado !== 'activo') {
-      throw new ErrorApp('EMPLEADO_INVALIDO', 'Los turnos solo se asignan a empleados con la cuenta activa');
+  function exigirRolEncargado(membresia, actorId, grupoId) {
+    if (membresia.rol !== 'encargado') {
+      log('warn', 'acceso denegado: se requiere ser encargado del grupo', { actorId, grupoId });
+      throw new ErrorApp('PROHIBIDO', 'Solo el encargado del grupo puede gestionar los turnos', 403);
     }
-    return empleado;
+  }
+
+  async function exigirEncargado(actorId, grupoId) {
+    exigirRolEncargado(await exigirMiembro(actorId, grupoId), actorId, grupoId);
+  }
+
+  // Para editar o eliminar un turno concreto: hay que ser encargado del grupo al que pertenece
+  async function exigirEncargadoDelTurno(actorId, turnoId) {
+    const turno = typeof turnoId === 'string' ? await repo.buscarPorId(turnoId) : null;
+    const membresia = turno ? await repoGrupos.buscarMembresia(turno.grupoId, actorId) : null;
+    if (!turno || !membresia) throw new ErrorApp('NO_ENCONTRADO', 'El turno no existe', 404);
+    exigirRolEncargado(membresia, actorId, turno.grupoId);
+    return turno;
+  }
+
+  // Los turnos solo se asignan a empleados del propio grupo
+  async function exigirEmpleadoDelGrupo(grupoId, empleadoId) {
+    const m = typeof empleadoId === 'string' ? await repoGrupos.buscarMembresia(grupoId, empleadoId) : null;
+    if (!m || m.rol !== 'empleado') {
+      throw new ErrorApp('EMPLEADO_INVALIDO', 'Los turnos solo se asignan a empleados del grupo');
+    }
   }
 
   function validarRangoTurno(inicio, fin) {
@@ -72,7 +93,7 @@ function crearServicioTurnos({ repo, repoUsuarios, log = () => {} }) {
     return nota.trim() || null;
   }
 
-  // Un empleado no puede tener dos turnos a la vez
+  // Una persona no puede estar en dos sitios a la vez: el solape se comprueba en TODOS sus grupos
   async function comprobarSolape(empleadoId, inicio, fin, excluirId = null) {
     const existentes = await repo.listarPorRango({ desde: inicio, hasta: fin, empleadoId });
     if (existentes.some((t) => t.id !== excluirId)) {
@@ -81,16 +102,18 @@ function crearServicioTurnos({ repo, repoUsuarios, log = () => {} }) {
   }
 
   return {
-    async crearTurno(actorId, { empleadoId, inicio, fin, nota } = {}) {
-      await exigirEncargado(actorId);
+    async crearTurno(actorId, grupoId, { empleadoId, inicio, fin, nota } = {}) {
+      await obtenerActor(actorId);
+      await exigirEncargado(actorId, grupoId);
       const ini = parsearFecha(inicio, 'inicio');
       const f = parsearFecha(fin, 'fin');
       validarRangoTurno(ini, f);
-      await exigirEmpleado(empleadoId);
+      await exigirEmpleadoDelGrupo(grupoId, empleadoId);
       await comprobarSolape(empleadoId, ini, f);
 
       const turno = {
         id: crypto.randomUUID(),
+        grupoId,
         empleadoId,
         inicio: ini,
         fin: f,
@@ -98,14 +121,13 @@ function crearServicioTurnos({ repo, repoUsuarios, log = () => {} }) {
         creadoPor: actorId,
       };
       await repo.crear(turno);
-      log('info', 'turno creado', { id: turno.id, empleadoId, actorId });
+      log('info', 'turno creado', { id: turno.id, grupoId, empleadoId, actorId });
       return publico(turno, true);
     },
 
     async editarTurno(actorId, id, cambios = {}) {
-      await exigirEncargado(actorId);
-      const actual = await repo.buscarPorId(id);
-      if (!actual) throw new ErrorApp('NO_ENCONTRADO', 'El turno no existe', 404);
+      await obtenerActor(actorId);
+      const actual = await exigirEncargadoDelTurno(actorId, id);
 
       const empleadoId = cambios.empleadoId !== undefined ? cambios.empleadoId : actual.empleadoId;
       const ini = cambios.inicio !== undefined ? parsearFecha(cambios.inicio, 'inicio') : new Date(actual.inicio);
@@ -113,7 +135,7 @@ function crearServicioTurnos({ repo, repoUsuarios, log = () => {} }) {
       const nota = cambios.nota !== undefined ? validarNota(cambios.nota) : actual.nota;
 
       validarRangoTurno(ini, f);
-      if (cambios.empleadoId !== undefined) await exigirEmpleado(empleadoId);
+      if (cambios.empleadoId !== undefined) await exigirEmpleadoDelGrupo(actual.grupoId, empleadoId);
       await comprobarSolape(empleadoId, ini, f, actual.id); // se excluye a sí mismo
 
       await repo.actualizar(id, { empleadoId, inicio: ini, fin: f, nota });
@@ -122,41 +144,46 @@ function crearServicioTurnos({ repo, repoUsuarios, log = () => {} }) {
     },
 
     async eliminarTurno(actorId, id) {
-      await exigirEncargado(actorId);
-      if (!(await repo.buscarPorId(id))) throw new ErrorApp('NO_ENCONTRADO', 'El turno no existe', 404);
+      await obtenerActor(actorId);
+      await exigirEncargadoDelTurno(actorId, id);
       await repo.eliminar(id);
       log('info', 'turno eliminado', { id, actorId });
     },
 
-    // Los turnos del propio usuario en un rango
+    // Los turnos del propio usuario en todos sus grupos
     async listarMios(actorId, { desde, hasta } = {}) {
       const actor = await obtenerActor(actorId);
       const d = parsearFecha(desde, 'desde');
       const h = parsearFecha(hasta, 'hasta');
       validarRangoConsulta(d, h);
+
+      const nombres = new Map((await repoGrupos.listarGruposDeUsuario(actor.id)).map((g) => [g.id, g.nombre]));
       const turnos = await repo.listarPorRango({ desde: d, hasta: h, empleadoId: actor.id });
-      return turnos.map((t) => publico(t, true));
+      return turnos.map((t) => ({ ...publico(t, true), grupoNombre: nombres.get(t.grupoId) || null }));
     },
 
-    // Calendario del equipo: lo ve cualquier usuario autenticado, en solo lectura.
+    // Calendario del grupo: lo ven sus miembros, en solo lectura.
     // La nota solo la ven el encargado y el propio empleado.
-    async listarEquipo(actorId, { desde, hasta } = {}) {
-      const actor = await obtenerActor(actorId);
+    async listarEquipo(actorId, grupoId, { desde, hasta } = {}) {
+      await obtenerActor(actorId);
+      const membresia = await exigirMiembro(actorId, grupoId);
       const d = parsearFecha(desde, 'desde');
       const h = parsearFecha(hasta, 'hasta');
       validarRangoConsulta(d, h);
 
       const emails = new Map((await repoUsuarios.listar()).map((u) => [u.id, u.email]));
-      const turnos = await repo.listarPorRango({ desde: d, hasta: h });
+      const turnos = await repo.listarPorRango({ desde: d, hasta: h, grupoId });
       return turnos.map((t) => ({
-        ...publico(t, actor.rol === 'administrador' || t.empleadoId === actor.id),
+        ...publico(t, membresia.rol === 'encargado' || t.empleadoId === actorId),
         empleadoEmail: emails.get(t.empleadoId) || null,
       }));
     },
 
-    // Disponibilidad derivada: está libre quien no tiene ningún turno que se solape con la franja
-    async disponibilidad(actorId, { inicio, fin } = {}) {
+    // Disponibilidad derivada: está libre el empleado del grupo sin ningún turno
+    // (en ningún grupo) que se solape con la franja
+    async disponibilidad(actorId, grupoId, { inicio, fin } = {}) {
       await obtenerActor(actorId);
+      await exigirMiembro(actorId, grupoId);
       const ini = parsearFecha(inicio, 'inicio');
       const f = parsearFecha(fin, 'fin');
       validarRangoConsulta(ini, f);
@@ -164,9 +191,10 @@ function crearServicioTurnos({ repo, repoUsuarios, log = () => {} }) {
       const ocupados = new Set(
         (await repo.listarPorRango({ desde: ini, hasta: f })).map((t) => t.empleadoId)
       );
-      return (await repoUsuarios.listar())
-        .filter((u) => u.rol === 'usuario' && u.estado === 'activo' && !ocupados.has(u.id))
-        .map((u) => ({ id: u.id, email: u.email }));
+      const emails = new Map((await repoUsuarios.listar()).map((u) => [u.id, u.email]));
+      return (await repoGrupos.listarMiembros(grupoId))
+        .filter((m) => m.rol === 'empleado' && !ocupados.has(m.usuarioId))
+        .map((m) => ({ id: m.usuarioId, email: emails.get(m.usuarioId) || null }));
     },
   };
 }

@@ -7,11 +7,13 @@ const { crearServicioUsuarios, ErrorApp, calcularEstadoUsuario } = require('./lo
 const { crearRepoMemoria, crearRepoPostgres } = require('./datos');
 const { crearRepoTurnosMemoria, crearRepoTurnosPostgres } = require('./datos-turnos');
 const { crearServicioTurnos } = require('./logica-turnos');
+const { crearRepoGruposMemoria, crearRepoGruposPostgres } = require('./datos-grupos');
+const { crearServicioGrupos } = require('./logica-grupos');
 const { crearCorreoBrevo } = require('./correo');
 const { crearGoogle } = require('./google');
 const { log } = require('./logger');
 
-function crearApp({ servicio, turnos, store, google = null }) {
+function crearApp({ servicio, turnos, grupos, store, google = null }) {
   const app = express();
   const produccion = process.env.NODE_ENV === 'production';
   if (produccion) app.set('trust proxy', 1); // Render va detrás de un proxy HTTPS
@@ -166,26 +168,27 @@ function crearApp({ servicio, turnos, store, google = null }) {
 
   // ---------------------------------------------------------------- Turnos
   // Las rutas solo leen la petición, llaman a la lógica y devuelven la respuesta.
+  // Los turnos viven dentro de un grupo: los permisos salen de la pertenencia al grupo.
   app.get('/api/turnos/mios', requiereSesion, wrap(async (req, res) => {
     res.json(await turnos.listarMios(req.session.usuarioId, {
       desde: req.query.desde, hasta: req.query.hasta,
     }));
   }));
 
-  app.get('/api/turnos/equipo', requiereSesion, wrap(async (req, res) => {
-    res.json(await turnos.listarEquipo(req.session.usuarioId, {
+  app.get('/api/grupos/:id/turnos', requiereSesion, wrap(async (req, res) => {
+    res.json(await turnos.listarEquipo(req.session.usuarioId, req.params.id, {
       desde: req.query.desde, hasta: req.query.hasta,
     }));
   }));
 
-  app.get('/api/disponibilidad', requiereSesion, wrap(async (req, res) => {
-    res.json(await turnos.disponibilidad(req.session.usuarioId, {
+  app.get('/api/grupos/:id/disponibilidad', requiereSesion, wrap(async (req, res) => {
+    res.json(await turnos.disponibilidad(req.session.usuarioId, req.params.id, {
       inicio: req.query.inicio, fin: req.query.fin,
     }));
   }));
 
-  app.post('/api/turnos', requiereSesion, wrap(async (req, res) => {
-    res.status(201).json(await turnos.crearTurno(req.session.usuarioId, req.body || {}));
+  app.post('/api/grupos/:id/turnos', requiereSesion, wrap(async (req, res) => {
+    res.status(201).json(await turnos.crearTurno(req.session.usuarioId, req.params.id, req.body || {}));
   }));
 
   app.put('/api/turnos/:id', requiereSesion, wrap(async (req, res) => {
@@ -194,6 +197,60 @@ function crearApp({ servicio, turnos, store, google = null }) {
 
   app.delete('/api/turnos/:id', requiereSesion, wrap(async (req, res) => {
     await turnos.eliminarTurno(req.session.usuarioId, req.params.id);
+    res.status(204).end();
+  }));
+
+  // ---------------------------------------------------------------- Grupos e invitaciones
+  app.get('/api/grupos', requiereSesion, wrap(async (req, res) => {
+    res.json(await grupos.listarMisGrupos(req.session.usuarioId));
+  }));
+
+  app.post('/api/grupos', requiereSesion, wrap(async (req, res) => {
+    res.status(201).json(await grupos.crearGrupo(req.session.usuarioId, req.body || {}));
+  }));
+
+  app.get('/api/grupos/:id', requiereSesion, wrap(async (req, res) => {
+    res.json(await grupos.obtenerGrupo(req.session.usuarioId, req.params.id));
+  }));
+
+  app.delete('/api/grupos/:id', requiereSesion, wrap(async (req, res) => {
+    await grupos.eliminarGrupo(req.session.usuarioId, req.params.id);
+    res.status(204).end();
+  }));
+
+  app.post('/api/grupos/:id/salir', requiereSesion, wrap(async (req, res) => {
+    await grupos.salir(req.session.usuarioId, req.params.id);
+    res.status(204).end();
+  }));
+
+  app.delete('/api/grupos/:id/miembros/:usuarioId', requiereSesion, wrap(async (req, res) => {
+    await grupos.expulsar(req.session.usuarioId, req.params.id, req.params.usuarioId);
+    res.status(204).end();
+  }));
+
+  app.get('/api/grupos/:id/invitaciones', requiereSesion, wrap(async (req, res) => {
+    res.json(await grupos.listarInvitacionesDeGrupo(req.session.usuarioId, req.params.id));
+  }));
+
+  app.post('/api/grupos/:id/invitaciones', requiereSesion, wrap(async (req, res) => {
+    res.status(201).json(await grupos.invitar(req.session.usuarioId, req.params.id, req.body || {}));
+  }));
+
+  app.delete('/api/grupos/:id/invitaciones/:invitacionId', requiereSesion, wrap(async (req, res) => {
+    await grupos.cancelarInvitacion(req.session.usuarioId, req.params.id, req.params.invitacionId);
+    res.status(204).end();
+  }));
+
+  app.get('/api/invitaciones', requiereSesion, wrap(async (req, res) => {
+    res.json(await grupos.listarMisInvitaciones(req.session.usuarioId));
+  }));
+
+  app.post('/api/invitaciones/:id/aceptar', requiereSesion, wrap(async (req, res) => {
+    res.json(await grupos.aceptarInvitacion(req.session.usuarioId, req.params.id));
+  }));
+
+  app.post('/api/invitaciones/:id/rechazar', requiereSesion, wrap(async (req, res) => {
+    await grupos.rechazarInvitacion(req.session.usuarioId, req.params.id);
     res.status(204).end();
   }));
 
@@ -213,11 +270,13 @@ function crearApp({ servicio, turnos, store, google = null }) {
 }
 
 async function arrancar() {
-  let repo, repoTurnos, store;
+  let repo, repoGrupos, repoTurnos, store;
 
   if (process.env.DATABASE_URL) {
     repo = crearRepoPostgres(process.env.DATABASE_URL);
-    await repo.inicializar();                    // primero usuarios: turnos depende de esa tabla
+    await repo.inicializar();                    // primero usuarios; después grupos y turnos
+    repoGrupos = crearRepoGruposPostgres(repo.pool);
+    await repoGrupos.inicializar();
     repoTurnos = crearRepoTurnosPostgres(repo.pool);
     await repoTurnos.inicializar();
     const PgSession = require('connect-pg-simple')(session);
@@ -225,6 +284,7 @@ async function arrancar() {
   } else {
     log('warn', 'DATABASE_URL no definida: usando datos en memoria (solo desarrollo)');
     repo = crearRepoMemoria();
+    repoGrupos = crearRepoGruposMemoria();
     repoTurnos = crearRepoTurnosMemoria();
   }
 
@@ -256,7 +316,8 @@ async function arrancar() {
   }
 
   const servicio = crearServicioUsuarios({ repo, correo, urlBase, log, requiereConfirmacion });
-  const turnos = crearServicioTurnos({ repo: repoTurnos, repoUsuarios: repo, log });
+  const turnos = crearServicioTurnos({ repo: repoTurnos, repoGrupos, repoUsuarios: repo, log });
+  const grupos = crearServicioGrupos({ repo: repoGrupos, repoUsuarios: repo, repoTurnos, log });
 
   if (process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
     await servicio.asegurarAdministrador(process.env.ADMIN_EMAIL, process.env.ADMIN_PASSWORD);
@@ -265,7 +326,7 @@ async function arrancar() {
   }
 
   const puerto = process.env.PORT || 3000;
-  crearApp({ servicio, turnos, store, google }).listen(puerto, () => log('info', 'servidor arrancado', { puerto }));
+  crearApp({ servicio, turnos, grupos, store, google }).listen(puerto, () => log('info', 'servidor arrancado', { puerto }));
 }
 
 if (require.main === module) {
