@@ -3,183 +3,331 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Mi aplicación</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; }
-    input, button, select { padding: .5rem; margin: .25rem 0; }
-    input, select { display: block; width: 100%; box-sizing: border-box; }
-    input[type=radio] { display: inline; width: auto; margin-right: .25rem; }
-    label { display: block; margin-top: .5rem; font-size: .9rem; color: #444; }
-    .error { color: #b00020; } .ok { color: #1b7f3b; }
-    table { width: 100%; border-collapse: collapse; } td, th { border-bottom: 1px solid #ddd; padding: .4rem; text-align: left; }
-    .oculto { display: none; }
-    .barra { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
-    li button { margin-left: .5rem; }
-  </style>
+  <title>Work Commands</title>
+  <link rel="stylesheet" href="estilos.css">
 </head>
 <body>
-  <h1>Mi aplicación</h1>
-  <p id="mensaje" role="alert"></p>
-
-  <section id="vista-acceso">
-    <h2>Iniciar sesión</h2>
-    <input id="login-email" type="email" placeholder="Email">
-    <input id="login-password" type="password" placeholder="Contraseña">
-    <button id="btn-login">Entrar</button>
-    <button id="btn-reenviar" class="oculto">Reenviar correo de confirmación</button>
-    <button id="btn-google">Continuar con Google</button>
-
-    <h2>Crear cuenta</h2>
-    <input id="reg-email" type="email" placeholder="Email">
-    <input id="reg-password" type="password" placeholder="Contraseña (mín. 8 caracteres)">
-    <button id="btn-registro">Registrarme</button>
-  </section>
-
-  <section id="vista-panel" class="oculto">
-    <p>Sesión iniciada como <strong id="panel-email"></strong> (<span id="panel-rol"></span>)</p>
-    <button id="btn-logout">Cerrar sesión</button>
-    <button id="btn-borrar-cuenta">Eliminar mi cuenta</button>
-
-    <section id="zona-grupos" class="oculto">
-      <h2>Mis grupos de trabajo</h2>
-
-      <div id="g-invitaciones" class="oculto">
-        <h3>Invitaciones recibidas</h3>
-        <ul id="g-lista-invitaciones"></ul>
-      </div>
-
-      <div id="g-vista-lista">
-        <ul id="g-lista"></ul>
-        <p id="g-vacio" class="oculto">Todavía no perteneces a ningún grupo. Crea el tuyo o espera una invitación.</p>
-        <h3>Crear un grupo</h3>
-        <label for="g-nombre">Nombre del grupo</label>
-        <input id="g-nombre" type="text" maxlength="60" placeholder="Por ejemplo: Cafetería Sol">
-        <button id="g-crear">Crear grupo</button>
-      </div>
-
-      <div id="g-vista-detalle" class="oculto">
-        <button id="g-volver">&larr; Volver a mis grupos</button>
-        <h3 id="g-titulo"></h3>
-        <p id="g-rol"></p>
-
-        <h4>Miembros</h4>
-        <table>
-          <thead><tr><th>Correo</th><th>Rol</th><th></th></tr></thead>
-          <tbody id="g-miembros"></tbody>
-        </table>
-
-        <section id="zona-turnos" class="oculto">
-          <h3>Turnos</h3>
-          <div class="barra">
-            <button id="t-anterior">&larr; Anterior</button>
-            <strong id="t-semana"></strong>
-            <button id="t-siguiente">Siguiente &rarr;</button>
-            <button id="t-hoy">Hoy</button>
-          </div>
-          <div class="barra">
-            <label><input type="radio" name="t-vista" value="equipo" checked> Equipo del grupo</label>
-            <label><input type="radio" name="t-vista" value="mios"> Mis turnos (todos mis grupos)</label>
-          </div>
-          <table>
-            <thead><tr><th>Empleado</th><th>Grupo</th><th>Inicio</th><th>Fin</th><th>Nota</th><th></th></tr></thead>
-            <tbody id="t-tabla"></tbody>
-          </table>
-          <p id="t-vacio" class="oculto">No hay turnos esta semana.</p>
-
-          <div id="t-admin" class="oculto">
-            <h4 id="t-form-titulo">Nuevo turno</h4>
-            <p id="t-sin-empleados" class="oculto">Aún no hay empleados en el grupo. Invítalos para poder asignarles turnos.</p>
-            <label for="t-empleado">Empleado</label>
-            <select id="t-empleado"></select>
-            <label for="t-inicio">Inicio</label>
-            <input id="t-inicio" type="datetime-local">
-            <label for="t-fin">Fin</label>
-            <input id="t-fin" type="datetime-local">
-            <label for="t-nota">Nota (opcional)</label>
-            <input id="t-nota" type="text" maxlength="200">
-            <button id="t-guardar">Crear turno</button>
-            <button id="t-cancelar" class="oculto">Cancelar edición</button>
-          </div>
-
-          <h4>Disponibilidad</h4>
-          <p>Consulta qué empleados del grupo están libres en una franja horaria.</p>
-          <label for="t-disp-inicio">Desde</label>
-          <input id="t-disp-inicio" type="datetime-local">
-          <label for="t-disp-fin">Hasta</label>
-          <input id="t-disp-fin" type="datetime-local">
-          <button id="t-buscar-disp">Consultar</button>
-          <ul id="t-disp-resultado"></ul>
-        </section>
-
-        <section id="zona-solicitudes" class="oculto">
-          <h3>Solicitudes de cambio de turno</h3>
-
-          <div id="s-formulario" class="oculto">
-            <h4>Pedir un cambio</h4>
-            <label for="s-tipo">Tipo de cambio</label>
-            <select id="s-tipo">
-              <option value="cesion">Ceder mi turno a un compañero</option>
-              <option value="intercambio">Intercambiar mi turno por uno de un compañero</option>
-            </select>
-            <label for="s-turno">Mi turno</label>
-            <select id="s-turno"></select>
-            <label for="s-companero">Compañero</label>
-            <select id="s-companero"></select>
-            <div id="s-zona-destino" class="oculto">
-              <label for="s-destino">Turno del compañero</label>
-              <select id="s-destino"></select>
-            </div>
-            <label for="s-motivo">Motivo (opcional)</label>
-            <input id="s-motivo" type="text" maxlength="200">
-            <button id="s-enviar">Enviar solicitud</button>
-          </div>
-
-          <table>
-            <thead>
-              <tr><th>Tipo</th><th>Solicita</th><th>Compañero</th><th>Turno</th><th>A cambio</th><th>Motivo</th><th>Estado</th><th></th></tr>
-            </thead>
-            <tbody id="s-tabla"></tbody>
-          </table>
-          <p id="s-vacio" class="oculto">No hay solicitudes.</p>
-        </section>
-
-        <section id="zona-horas" class="oculto">
-          <h3>Horas trabajadas</h3>
-          <label for="h-mes">Mes (AAAA-MM)</label>
-          <input id="h-mes" type="month" placeholder="AAAA-MM" pattern="\d{4}-\d{2}">
-          <button id="h-ver">Consultar</button>
-          <p id="h-mias"></p>
-          <ul id="h-mias-grupos"></ul>
-          <div id="h-zona-equipo" class="oculto">
-            <h4>Horas del equipo</h4>
-            <table>
-              <thead><tr><th>Empleado</th><th>Horas</th></tr></thead>
-              <tbody id="h-equipo"></tbody>
-            </table>
-          </div>
-        </section>
-
-        <div id="g-zona-encargado" class="oculto">
-          <h4>Invitar a una persona</h4>
-          <label for="g-invitar-email">Correo de la persona</label>
-          <input id="g-invitar-email" type="email" placeholder="empleado@correo.com">
-          <button id="g-invitar">Enviar invitación</button>
-          <h4>Invitaciones pendientes</h4>
-          <ul id="g-pendientes"></ul>
-          <button id="g-eliminar-grupo">Eliminar grupo</button>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="brand-logo" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <rect x="3" y="4" width="18" height="16" rx="4" stroke="#292831" stroke-width="2.2"/>
+            <path d="M7.5 10L10.5 12.5L7.5 15" stroke="#292831" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M12.5 15H16.5" stroke="#292831" stroke-width="2.2" stroke-linecap="round"/>
+          </svg>
         </div>
-        <button id="g-salir" class="oculto">Salir del grupo</button>
+        <div class="brand-text">
+          <h1>Work Commands</h1>
+          <span>Gestión inteligente de equipos, turnos y horas</span>
+        </div>
+      </div>
+
+      <div id="topbar-user" class="topbar-user oculto">
+        <div class="user-pill">
+          <div id="topbar-avatar" class="avatar-mini"></div>
+          <div class="user-pill-info">
+            <strong id="topbar-nombre"></strong>
+            <span id="panel-rol"></span>
+          </div>
+        </div>
+        <button id="btn-logout" class="btn-ghost btn-sm">Cerrar sesión</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-container">
+    <p id="mensaje" role="alert"></p>
+
+    <!-- ================================================================ VISTA ACCESO -->
+    <section id="vista-acceso" class="auth-layout">
+      <div class="card auth-hero">
+        <span class="auth-badge">Espacio de trabajo unificado</span>
+        <h2>Organiza tus turnos y coordina tu equipo desde un solo lugar</h2>
+        <p>
+          Crea grupos de trabajo, asigna horarios sin solapamientos, gestiona cambios de turno
+          y controla las horas trabajadas con total claridad.
+        </p>
+
+        <div class="feature-grid">
+          <div class="feature-item">
+            <strong>Grupos e invitaciones</strong>
+            <span>Administra equipos como encargado o únete como empleado en segundos.</span>
+          </div>
+          <div class="feature-item">
+            <strong>Turnos semanales</strong>
+            <span>Consulta disponibilidad real y evita conflictos entre grupos.</span>
+          </div>
+          <div class="feature-item">
+            <strong>Cambios e intercambios</strong>
+            <span>Solicita cesiones o intercambios con aprobación del encargado.</span>
+          </div>
+          <div class="feature-item">
+            <strong>Control de horas</strong>
+            <span>Resumen mensual automático por usuario y por grupo.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="auth-forms">
+        <div class="card">
+          <h2>Iniciar sesión</h2>
+          <label for="login-email">Correo electrónico</label>
+          <input id="login-email" type="email" placeholder="tu@correo.com">
+          <label for="login-password">Contraseña</label>
+          <input id="login-password" type="password" placeholder="••••••••">
+          <div class="account-actions-row">
+            <button id="btn-login">Entrar</button>
+            <button id="btn-reenviar" class="btn-secondary oculto">Reenviar correo de confirmación</button>
+          </div>
+          <div class="auth-divider">o continúa con</div>
+          <button id="btn-google" class="btn-secondary" style="width: 100%;">Continuar con Google</button>
+        </div>
+
+        <div class="card">
+          <h2>Crear cuenta</h2>
+          <label for="reg-email">Correo electrónico</label>
+          <input id="reg-email" type="email" placeholder="nuevo@correo.com">
+          <label for="reg-password">Contraseña</label>
+          <input id="reg-password" type="password" placeholder="Mínimo 8 caracteres">
+          <button id="btn-registro" style="width: 100%;">Registrarme en Work Commands</button>
+        </div>
       </div>
     </section>
 
-    <div id="zona-admin" class="oculto">
-      <h2>Administración de la web: usuarios</h2>
-      <table>
-        <thead><tr><th>Email</th><th>Rol</th><th>Estado</th><th></th></tr></thead>
-        <tbody id="tabla-usuarios"></tbody>
-      </table>
-    </div>
-  </section>
+    <!-- ================================================================ VISTA PANEL -->
+    <section id="vista-panel" class="oculto">
+      <div class="dashboard-grid">
+        <!-- Columna principal: bienvenida + grupos -->
+        <div class="main-column">
+          <div class="card welcome-banner">
+            <div>
+              <h2 id="saludo-usuario">Bienvenido a Work Commands</h2>
+              <p style="margin: 0;">
+                Sesión iniciada como <strong id="panel-email" style="color: var(--accent-peach);"></strong>
+              </p>
+              <div class="welcome-meta">
+                <span class="stat-chip">Cuenta: <strong id="chip-estado">Activa</strong></span>
+                <span class="stat-chip" id="chip-direccion-wrap">Ubicación: <strong id="chip-direccion">Sin definir</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <section id="zona-grupos" class="card oculto">
+            <h2>Mis grupos de trabajo</h2>
+
+            <div id="g-invitaciones" class="oculto">
+              <h3>Invitaciones recibidas</h3>
+              <ul id="g-lista-invitaciones"></ul>
+            </div>
+
+            <div id="g-vista-lista">
+              <ul id="g-lista"></ul>
+              <p id="g-vacio" class="oculto">Todavía no perteneces a ningún grupo. Crea el tuyo o espera una invitación.</p>
+
+              <div class="card-subtle" style="margin-top: 1.25rem;">
+                <h3>Crear un grupo</h3>
+                <label for="g-nombre">Nombre del grupo</label>
+                <input id="g-nombre" type="text" maxlength="60" placeholder="Por ejemplo: Cafetería Sol">
+                <button id="g-crear">Crear grupo</button>
+              </div>
+            </div>
+
+            <div id="g-vista-detalle" class="oculto">
+              <button id="g-volver" class="btn-ghost">&larr; Volver a mis grupos</button>
+              <h3 id="g-titulo" style="margin-top: 1rem; font-size: 1.35rem;"></h3>
+              <p id="g-rol"></p>
+
+              <h4>Miembros</h4>
+              <table>
+                <thead><tr><th>Correo</th><th>Rol</th><th></th></tr></thead>
+                <tbody id="g-miembros"></tbody>
+              </table>
+
+              <section id="zona-turnos" class="oculto">
+                <h3>Turnos</h3>
+                <div class="barra">
+                  <button id="t-anterior" class="btn-secondary btn-sm">&larr; Anterior</button>
+                  <strong id="t-semana" style="color: var(--accent-peach);"></strong>
+                  <button id="t-siguiente" class="btn-secondary btn-sm">Siguiente &rarr;</button>
+                  <button id="t-hoy" class="btn-ghost btn-sm">Hoy</button>
+                </div>
+                <div class="barra">
+                  <label><input type="radio" name="t-vista" value="equipo" checked> Equipo del grupo</label>
+                  <label><input type="radio" name="t-vista" value="mios"> Mis turnos (todos mis grupos)</label>
+                </div>
+                <table>
+                  <thead><tr><th>Empleado</th><th>Grupo</th><th>Inicio</th><th>Fin</th><th>Nota</th><th></th></tr></thead>
+                  <tbody id="t-tabla"></tbody>
+                </table>
+                <p id="t-vacio" class="oculto">No hay turnos esta semana.</p>
+
+                <div id="t-admin" class="oculto card-subtle" style="margin-top: 1rem;">
+                  <h4 id="t-form-titulo">Nuevo turno</h4>
+                  <p id="t-sin-empleados" class="oculto">Aún no hay empleados en el grupo. Invítalos para poder asignarles turnos.</p>
+                  <label for="t-empleado">Empleado</label>
+                  <select id="t-empleado"></select>
+                  <label for="t-inicio">Inicio</label>
+                  <input id="t-inicio" type="datetime-local">
+                  <label for="t-fin">Fin</label>
+                  <input id="t-fin" type="datetime-local">
+                  <label for="t-nota">Nota (opcional)</label>
+                  <input id="t-nota" type="text" maxlength="200">
+                  <div class="account-actions-row">
+                    <button id="t-guardar">Crear turno</button>
+                    <button id="t-cancelar" class="btn-ghost oculto">Cancelar edición</button>
+                  </div>
+                </div>
+
+                <div class="card-subtle" style="margin-top: 1rem;">
+                  <h4>Disponibilidad</h4>
+                  <p>Consulta qué empleados del grupo están libres en una franja horaria.</p>
+                  <label for="t-disp-inicio">Desde</label>
+                  <input id="t-disp-inicio" type="datetime-local">
+                  <label for="t-disp-fin">Hasta</label>
+                  <input id="t-disp-fin" type="datetime-local">
+                  <button id="t-buscar-disp" class="btn-secondary">Consultar</button>
+                  <ul id="t-disp-resultado"></ul>
+                </div>
+              </section>
+
+              <section id="zona-solicitudes" class="oculto">
+                <h3>Solicitudes de cambio de turno</h3>
+
+                <div id="s-formulario" class="oculto card-subtle" style="margin-bottom: 1rem;">
+                  <h4>Pedir un cambio</h4>
+                  <label for="s-tipo">Tipo de cambio</label>
+                  <select id="s-tipo">
+                    <option value="cesion">Ceder mi turno a un compañero</option>
+                    <option value="intercambio">Intercambiar mi turno por uno de un compañero</option>
+                  </select>
+                  <label for="s-turno">Mi turno</label>
+                  <select id="s-turno"></select>
+                  <label for="s-companero">Compañero</label>
+                  <select id="s-companero"></select>
+                  <div id="s-zona-destino" class="oculto">
+                    <label for="s-destino">Turno del compañero</label>
+                    <select id="s-destino"></select>
+                  </div>
+                  <label for="s-motivo">Motivo (opcional)</label>
+                  <input id="s-motivo" type="text" maxlength="200">
+                  <button id="s-enviar">Enviar solicitud</button>
+                </div>
+
+                <table>
+                  <thead>
+                    <tr><th>Tipo</th><th>Solicita</th><th>Compañero</th><th>Turno</th><th>A cambio</th><th>Motivo</th><th>Estado</th><th></th></tr>
+                  </thead>
+                  <tbody id="s-tabla"></tbody>
+                </table>
+                <p id="s-vacio" class="oculto">No hay solicitudes.</p>
+              </section>
+
+              <section id="zona-horas" class="oculto">
+                <h3>Horas trabajadas</h3>
+                <label for="h-mes">Mes (AAAA-MM)</label>
+                <input id="h-mes" type="month" placeholder="AAAA-MM" pattern="\d{4}-\d{2}">
+                <button id="h-ver" class="btn-secondary">Consultar</button>
+                <p id="h-mias"></p>
+                <ul id="h-mias-grupos"></ul>
+                <div id="h-zona-equipo" class="oculto">
+                  <h4>Horas del equipo</h4>
+                  <table>
+                    <thead><tr><th>Empleado</th><th>Horas</th></tr></thead>
+                    <tbody id="h-equipo"></tbody>
+                  </table>
+                </div>
+              </section>
+
+              <div id="g-zona-encargado" class="oculto">
+                <h4>Invitar a una persona</h4>
+                <label for="g-invitar-email">Correo de la persona</label>
+                <input id="g-invitar-email" type="email" placeholder="empleado@correo.com">
+                <button id="g-invitar">Enviar invitación</button>
+                <h4 style="margin-top: 1.25rem;">Invitaciones pendientes</h4>
+                <ul id="g-pendientes"></ul>
+                <button id="g-eliminar-grupo" class="btn-danger">Eliminar grupo</button>
+              </div>
+              <button id="g-salir" class="btn-danger oculto" style="margin-top: 1rem;">Salir del grupo</button>
+            </div>
+          </section>
+        </div>
+
+        <!-- Columna derecha: Widgets (Reloj + Ajustes de cuenta) -->
+        <aside class="widgets-column">
+          <!-- Widget de Reloj -->
+          <section class="card clock-card" aria-label="Widget de reloj">
+            <div class="clock-header">
+              <h3 style="margin: 0;">Reloj actual</h3>
+              <span id="reloj-zona" class="clock-badge">Hora local</span>
+            </div>
+            <div class="clock-body">
+              <svg class="clock-analog" viewBox="0 0 120 120" aria-hidden="true">
+                <circle cx="60" cy="60" r="54" fill="#292831" stroke="#4a7a96" stroke-width="4"/>
+                <circle cx="60" cy="60" r="46" fill="none" stroke="rgba(251,187,173,0.18)" stroke-width="1"/>
+                <line x1="60" y1="12" x2="60" y2="18" stroke="#fbbbad" stroke-width="2.5" stroke-linecap="round"/>
+                <line x1="60" y1="102" x2="60" y2="108" stroke="#fbbbad" stroke-width="2.5" stroke-linecap="round"/>
+                <line x1="12" y1="60" x2="18" y2="60" stroke="#fbbbad" stroke-width="2.5" stroke-linecap="round"/>
+                <line x1="102" y1="60" x2="108" y2="60" stroke="#fbbbad" stroke-width="2.5" stroke-linecap="round"/>
+                <line id="reloj-hora" x1="60" y1="60" x2="60" y2="33" stroke="#fbbbad" stroke-width="4" stroke-linecap="round"/>
+                <line id="reloj-minuto" x1="60" y1="60" x2="60" y2="23" stroke="#4a7a96" stroke-width="3" stroke-linecap="round"/>
+                <line id="reloj-segundo" x1="60" y1="68" x2="60" y2="18" stroke="#ee8695" stroke-width="1.8" stroke-linecap="round"/>
+                <circle cx="60" cy="60" r="4" fill="#ee8695"/>
+              </svg>
+              <div class="clock-digital-wrap">
+                <div id="reloj-digital" class="clock-time">--:--:--</div>
+                <div id="reloj-fecha" class="clock-date">Cargando fecha...</div>
+                <div id="reloj-tz" class="clock-tz"></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Widget de Ajustes de Cuenta -->
+          <section class="card" aria-label="Ajustes de cuenta">
+            <h3>Ajustes de cuenta</h3>
+
+            <div class="profile-preview">
+              <div id="cuenta-avatar-preview" class="avatar-lg"></div>
+              <div class="profile-summary">
+                <strong id="cuenta-preview-nombre">Usuario</strong>
+                <span id="cuenta-preview-email"></span>
+                <span id="cuenta-preview-direccion">Sin dirección configurada</span>
+              </div>
+            </div>
+
+            <label for="cuenta-nombre">Nombre visible</label>
+            <input id="cuenta-nombre" type="text" maxlength="60" placeholder="Tu nombre y apellidos">
+
+            <label for="cuenta-direccion">Dirección</label>
+            <input id="cuenta-direccion" type="text" maxlength="120" placeholder="Calle, número, ciudad...">
+
+            <label for="cuenta-foto-file">Foto de perfil</label>
+            <input id="cuenta-foto-file" type="file" accept="image/*">
+
+            <div class="account-actions-row">
+              <button id="btn-guardar-cuenta">Guardar ajustes</button>
+              <button id="btn-quitar-foto" type="button" class="btn-ghost">Quitar foto</button>
+            </div>
+            <p id="cuenta-estado" style="margin: 0.6rem 0 0; font-size: 0.84rem; color: var(--accent-peach);"></p>
+
+            <div class="account-danger-zone">
+              <span style="font-size: 0.8rem; color: var(--text-muted);">Gestión de cuenta</span>
+              <button id="btn-borrar-cuenta" class="btn-danger btn-sm">Eliminar mi cuenta</button>
+            </div>
+          </section>
+        </aside>
+      </div>
+
+      <!-- Panel de administración global -->
+      <div id="zona-admin" class="card oculto">
+        <h2>Administración de la web: usuarios</h2>
+        <table>
+          <thead><tr><th>Email</th><th>Rol</th><th>Estado</th><th></th></tr></thead>
+          <tbody id="tabla-usuarios"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
 
   <script src="rest.js"></script>
   <script src="turnos.js"></script>
@@ -189,6 +337,7 @@
   <script>
     const $ = (id) => document.getElementById(id);
     let yo = null;
+    let fotoTemporal = '';
 
     function mostrar(texto, tipo = 'error') {
       const m = $('mensaje');
@@ -208,12 +357,146 @@
       }
     }
 
+    // ---------------------------------------------------------------- Reloj en vivo
+    function actualizarReloj() {
+      const ahora = new Date();
+      const h = ahora.getHours();
+      const m = ahora.getMinutes();
+      const s = ahora.getSeconds();
+
+      const pad = (n) => String(n).padStart(2, '0');
+      $('reloj-digital').textContent = `${pad(h)}:${pad(m)}:${pad(s)}`;
+      $('reloj-fecha').textContent = ahora.toLocaleDateString('es-ES', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      });
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
+      $('reloj-tz').textContent = `Zona horaria: ${tz}`;
+
+      const degS = s * 6;
+      const degM = m * 6 + s * 0.1;
+      const degH = (h % 12) * 30 + m * 0.5;
+      $('reloj-segundo').setAttribute('transform', `rotate(${degS} 60 60)`);
+      $('reloj-minuto').setAttribute('transform', `rotate(${degM} 60 60)`);
+      $('reloj-hora').setAttribute('transform', `rotate(${degH} 60 60)`);
+    }
+    actualizarReloj();
+    setInterval(actualizarReloj, 1000);
+
+    // ---------------------------------------------------------------- Ajustes de cuenta (localStorage por usuario)
+    function clavePerfil(usuario) {
+      return `work_commands_profile_${usuario.id || usuario.email}`;
+    }
+
+    function leerPerfil(usuario) {
+      try {
+        const raw = localStorage.getItem(clavePerfil(usuario));
+        return raw ? JSON.parse(raw) : {};
+      } catch (_) {
+        return {};
+      }
+    }
+
+    function inicialesDe(nombre, email) {
+      const base = (nombre || email || 'U').trim();
+      const partes = base.split(/\s+/).filter(Boolean);
+      if (partes.length >= 2) return (partes[0][0] + partes[1][0]).toUpperCase();
+      return base.slice(0, 2).toUpperCase();
+    }
+
+    function pintarAvatar(contenedor, foto, nombre, email) {
+      contenedor.replaceChildren();
+      if (foto) {
+        const img = document.createElement('img');
+        img.src = foto;
+        img.alt = 'Foto de perfil';
+        contenedor.appendChild(img);
+      } else {
+        contenedor.textContent = inicialesDe(nombre, email);
+      }
+    }
+
+    function aplicarPerfilEnUI(perfil) {
+      if (!yo) return;
+      const nombre = (perfil.nombre || '').trim();
+      const direccion = (perfil.direccion || '').trim();
+      const foto = perfil.foto || '';
+      const nombreMostrado = nombre || yo.email.split('@')[0];
+
+      $('topbar-nombre').textContent = nombreMostrado;
+      $('saludo-usuario').textContent = `¡Hola, ${nombreMostrado}!`;
+      $('cuenta-preview-nombre').textContent = nombreMostrado;
+      $('cuenta-preview-email').textContent = yo.email;
+      $('cuenta-preview-direccion').textContent = direccion || 'Sin dirección configurada';
+      $('chip-direccion').textContent = direccion || 'Sin definir';
+
+      pintarAvatar($('topbar-avatar'), foto, nombre, yo.email);
+      pintarAvatar($('cuenta-avatar-preview'), foto, nombre, yo.email);
+    }
+
+    function cargarFormularioCuenta() {
+      if (!yo) return;
+      const perfil = leerPerfil(yo);
+      fotoTemporal = perfil.foto || '';
+      $('cuenta-nombre').value = perfil.nombre || '';
+      $('cuenta-direccion').value = perfil.direccion || '';
+      $('cuenta-foto-file').value = '';
+      $('cuenta-estado').textContent = '';
+      aplicarPerfilEnUI(perfil);
+    }
+
+    $('cuenta-foto-file').onchange = (ev) => {
+      const archivo = ev.target.files && ev.target.files[0];
+      if (!archivo) return;
+      const lector = new FileReader();
+      lector.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const max = 200;
+          const canvas = document.createElement('canvas');
+          const escala = Math.min(max / img.width, max / img.height, 1);
+          canvas.width = Math.round(img.width * escala);
+          canvas.height = Math.round(img.height * escala);
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          fotoTemporal = canvas.toDataURL('image/jpeg', 0.85);
+          pintarAvatar($('cuenta-avatar-preview'), fotoTemporal, $('cuenta-nombre').value, yo.email);
+          $('cuenta-estado').textContent = 'Foto lista. Pulsa "Guardar ajustes" para aplicar.';
+        };
+        img.src = lector.result;
+      };
+      lector.readAsDataURL(archivo);
+    };
+
+    $('btn-quitar-foto').onclick = () => {
+      fotoTemporal = '';
+      $('cuenta-foto-file').value = '';
+      pintarAvatar($('cuenta-avatar-preview'), '', $('cuenta-nombre').value, yo ? yo.email : '');
+      $('cuenta-estado').textContent = 'Foto quitada. Pulsa "Guardar ajustes" para confirmar.';
+    };
+
+    $('btn-guardar-cuenta').onclick = () => {
+      if (!yo) return;
+      const perfil = {
+        nombre: $('cuenta-nombre').value.trim(),
+        direccion: $('cuenta-direccion').value.trim(),
+        foto: fotoTemporal,
+      };
+      localStorage.setItem(clavePerfil(yo), JSON.stringify(perfil));
+      aplicarPerfilEnUI(perfil);
+      $('cuenta-estado').textContent = 'Ajustes guardados correctamente.';
+    };
+
+    // ---------------------------------------------------------------- Vista principal
     function pintarVista() {
       $('vista-acceso').classList.toggle('oculto', Boolean(yo));
       $('vista-panel').classList.toggle('oculto', !yo);
+      $('topbar-user').classList.toggle('oculto', !yo);
       if (!yo) { Grupos.limpiar(); return; }
       $('panel-email').textContent = yo.email;
       $('panel-rol').textContent = yo.rol === 'administrador' ? 'administrador de la web' : 'usuario';
+      cargarFormularioCuenta();
       const esAdmin = yo.rol === 'administrador';
       $('zona-admin').classList.toggle('oculto', !esAdmin);
       if (esAdmin) cargarUsuarios();
@@ -234,12 +517,14 @@
         const acciones = document.createElement('td');
         const bActivo = document.createElement('button');
         bActivo.textContent = '¿Activo?';
+        bActivo.className = 'btn-secondary';
         bActivo.onclick = () => accion(async () => {
           const r = await Rest.estaActivo(u.id);
           mostrar(`${u.email}: ${r.activo ? 'activo' : 'no activo'}`, 'ok');
         });
         const bBorrar = document.createElement('button');
         bBorrar.textContent = 'Eliminar';
+        bBorrar.className = 'btn-danger';
         bBorrar.onclick = () => accion(async () => {
           if (!confirm(`¿Eliminar a ${u.email}?`)) return;
           await Rest.eliminarUsuario(u.id);
