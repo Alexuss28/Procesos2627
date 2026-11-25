@@ -1,63 +1,116 @@
-// Presentación de las solicitudes de cambio de turno de un grupo.
-// Habla con el servidor solo a través de Rest y usa los helpers mostrar() y accion() de index.html.
-// Grupos.abrir() la activa con Solicitudes.abrir(grupo, usuario) y Solicitudes.cerrar() al salir del grupo.
-const Solicitudes = (() => {
-  const q = (id) => document.getElementById(id);
-
-  const DIAS_VISTA = 60; // los turnos que se pueden cambiar: los de los próximos 60 días
-  const ESTADO = { pendiente: 'Pendiente', aprobada: 'Aprobada', rechazada: 'Rechazada', cancelada: 'Cancelada' };
+// Vista "Solicitudes": cambios de turno (cesión o intercambio) que piden los empleados y resuelve el encargado.
+const VistaSolicitudes = (() => {
+  const { h, campo, accion, modal, toast } = UI;
+  const ESTADO = { pendiente: ['Pendiente', 'aviso'], aprobada: ['Aprobada', 'ok'], rechazada: ['Rechazada', 'error'], cancelada: ['Cancelada', ''] };
   const TIPO = { cesion: 'Cesión', intercambio: 'Intercambio' };
+  const DIAS_VISTA = 60; // se pueden cambiar los turnos de los próximos 60 días
 
-  let yo = null;
-  let grupo = null;      // { id, nombre, miRol, miembros }
-  let turnosGrupo = [];  // turnos futuros del grupo (para elegir el turno del compañero en un intercambio)
-  let eventosRegistrados = false;
+  let filtro = 'pendiente'; // 'pendiente' | 'todas'
+  const nombre = (email) => String(email || '').split('@')[0];
 
-  const esEncargado = () => Boolean(grupo) && grupo.miRol === 'encargado';
-
-  const hora = (iso) => new Date(iso).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-  const dia = (iso) => new Date(iso).toLocaleDateString('es-ES', { weekday: 'short', day: '2-digit', month: '2-digit' });
-  const franja = (t) => (t ? `${dia(t.inicio)} ${hora(t.inicio)}–${hora(t.fin)}` : '—');
-
-  function celda(texto) {
-    const td = document.createElement('td');
-    td.textContent = texto; // textContent evita inyección de HTML
-    return td;
-  }
-  function boton(texto, onclick) {
-    const b = document.createElement('button');
-    b.textContent = texto;
-    b.onclick = onclick;
-    return b;
+  function descripcion(s) {
+    const a = nombre(s.solicitante.email);
+    const b = nombre(s.companero.email);
+    return s.tipo === 'cesion'
+      ? `${a} cede a ${b} su turno del ${UI.franja(s.turnoOrigen)}`
+      : `${a} cambia su turno del ${UI.franja(s.turnoOrigen)} por el de ${b} del ${UI.franja(s.turnoDestino)}`;
   }
 
-  // Rellena un <select> con pares [valor, etiqueta]; si no hay opciones, muestra el aviso "vacio"
-  function llenar(id, pares, vacio) {
-    const select = q(id);
-    select.replaceChildren();
-    if (!pares.length) {
-      const op = document.createElement('option');
-      op.value = '';
-      op.textContent = vacio;
-      select.appendChild(op);
-      return;
+  async function montar(cont, ctx) {
+    const { grupo } = ctx;
+    const esEncargado = grupo.miRol === 'encargado';
+    const todas = await Rest.solicitudes(grupo.id);
+    const pendientes = todas.filter((s) => s.estado === 'pendiente').length;
+    const lista = filtro === 'pendiente' ? todas.filter((s) => s.estado === 'pendiente') : todas;
+
+    cont.replaceChildren(
+      h('div', { class: 'cab-vista' },
+        h('div', {},
+          h('h2', {}, 'Solicitudes de cambio'),
+          h('p', { class: 'sub' }, esEncargado
+            ? 'Aprueba o rechaza los cambios que piden tus empleados.'
+            : 'Pide ceder o intercambiar un turno con un compañero. Lo resuelve el encargado.')),
+        h('div', { class: 'herr-der' },
+          h('div', { class: 'segmentado' },
+            [['pendiente', `Pendientes (${pendientes})`], ['todas', 'Todas']].map(([valor, texto]) => h('button', {
+              class: filtro === valor ? 'activo' : '',
+              onclick: () => { filtro = valor; return ctx.refrescar(); },
+            }, texto))),
+          !esEncargado ? h('button', { class: 'btn primario', onclick: () => accion(() => nueva(ctx)) }, '＋ Nueva solicitud') : null)),
+      lista.length
+        ? h('div', { class: 'lista-tarjetas' }, lista.map((s) => tarjeta(s, ctx)))
+        : h('div', { class: 'tarjeta vacio' },
+          h('div', { class: 'emoji' }, '🔁'),
+          h('h3', {}, filtro === 'pendiente' ? 'No hay solicitudes pendientes' : 'Todavía no hay solicitudes'),
+          h('p', {}, esEncargado
+            ? 'Cuando un empleado pida un cambio de turno, aparecerá aquí.'
+            : 'Pulsa «Nueva solicitud» o abre un turno tuyo en el calendario.')));
+  }
+
+  function tarjeta(s, ctx) {
+    const { yo, grupo } = ctx;
+    const [textoEstado, claseEstado] = ESTADO[s.estado];
+    const acciones = [];
+    if (s.estado === 'pendiente') {
+      if (s.solicitante.id === yo.id) {
+        acciones.push(h('button', {
+          class: 'btn pequeno',
+          onclick: () => accion(async () => {
+            await Rest.cancelarSolicitud(s.id);
+            toast('Solicitud cancelada');
+            await ctx.refrescar();
+          }),
+        }, 'Cancelar solicitud'));
+      }
+      if (grupo.miRol === 'encargado') {
+        acciones.push(
+          h('button', { class: 'btn primario pequeno', onclick: () => resolver(ctx, s, true) }, 'Aprobar'),
+          h('button', { class: 'btn pequeno', onclick: () => resolver(ctx, s, false) }, 'Rechazar'));
+      }
     }
-    for (const [valor, etiqueta] of pares) {
-      const op = document.createElement('option');
-      op.value = valor;
-      op.textContent = etiqueta;
-      select.appendChild(op);
-    }
+    return h('div', { class: 'tarjeta' },
+      h('div', { class: 'sol-cab' },
+        h('span', { class: 'chip marca' }, TIPO[s.tipo]),
+        h('span', { class: `chip ${claseEstado}` }, textoEstado),
+        h('span', { class: 'sub' }, UI.relativo(s.creadaEn))),
+      h('p', {}, h('strong', {}, descripcion(s))),
+      s.motivo ? h('p', { class: 'sub' }, `Motivo: ${s.motivo}`) : null,
+      s.comentario ? h('p', { class: 'sub' }, `Respuesta del encargado: ${s.comentario}`) : null,
+      acciones.length ? h('div', { class: 'acciones' }, acciones) : null);
   }
 
-  function llenarDestino() {
-    const companero = q('s-companero').value;
-    llenar('s-destino',
-      turnosGrupo.filter((t) => t.empleadoId === companero).map((t) => [t.id, franja(t)]),
-      'Ese compañero no tiene turnos futuros');
+  // El encargado aprueba o rechaza, con un comentario opcional para el empleado
+  function resolver(ctx, s, aprobar) {
+    const comentario = h('input', { type: 'text', maxlength: 200, placeholder: 'Opcional' });
+    modal({
+      titulo: aprobar ? 'Aprobar solicitud' : 'Rechazar solicitud',
+      cuerpo: [
+        h('p', {}, descripcion(s)),
+        h('p', { class: 'sub' }, aprobar
+          ? 'Al aprobar, el cambio se aplica en el calendario y se avisa a los dos empleados.'
+          : 'El empleado recibirá un aviso con tu respuesta.'),
+        campo(aprobar ? 'Comentario para el empleado' : 'Motivo del rechazo', comentario),
+      ],
+      acciones: [
+        { texto: 'Cancelar', onclick: (cerrar) => cerrar() },
+        {
+          texto: aprobar ? 'Aprobar' : 'Rechazar',
+          clase: aprobar ? 'primario' : 'peligro',
+          onclick: async (cerrar) => {
+            if (aprobar) await Rest.aprobarSolicitud(s.id, comentario.value);
+            else await Rest.rechazarSolicitud(s.id, comentario.value);
+            cerrar();
+            toast(aprobar ? 'Solicitud aprobada: el calendario ya está actualizado.' : 'Solicitud rechazada.');
+            await ctx.refrescar();
+          },
+        },
+      ],
+    });
   }
 
-  async function cargarFormulario() {
+  // Formulario de una solicitud nueva. "prefill" permite abrirlo desde el calendario con datos ya elegidos.
+  async function nueva(ctx, prefill = {}) {
+    const { grupo, yo } = ctx;
     const desde = new Date();
     const hasta = new Date(desde.getTime() + DIAS_VISTA * 24 * 3600 * 1000);
     const [mios, equipo] = await Promise.all([
@@ -65,109 +118,55 @@ const Solicitudes = (() => {
       Rest.turnosEquipo(grupo.id, desde.toISOString(), hasta.toISOString()),
     ]);
     const futuros = (t) => new Date(t.inicio) > desde;
-    turnosGrupo = equipo.filter(futuros);
-    llenar('s-turno',
-      mios.filter((t) => t.grupoId === grupo.id && futuros(t)).map((t) => [t.id, franja(t)]),
-      'No tienes turnos futuros en este grupo');
-    llenar('s-companero',
-      grupo.miembros.filter((m) => m.rol === 'empleado' && m.usuarioId !== yo.id).map((m) => [m.usuarioId, m.email]),
-      'No hay compañeros en el grupo');
-    llenarDestino();
-  }
+    const misTurnos = mios.filter((t) => t.grupoId === grupo.id && futuros(t));
+    const delGrupo = equipo.filter(futuros);
+    const companeros = grupo.miembros.filter((m) => m.rol === 'empleado' && m.usuarioId !== yo.id);
+    if (!misTurnos.length) throw new Error('No tienes turnos futuros en este grupo para cambiar.');
+    if (!companeros.length) throw new Error('No hay compañeros en el grupo con quien cambiar.');
 
-  async function cargarLista() {
-    const lista = await Rest.solicitudes(grupo.id);
-    const tbody = q('s-tabla');
-    tbody.replaceChildren();
-    q('s-vacio').classList.toggle('oculto', lista.length > 0);
+    const tipo = h('select', { value: prefill.tipo || 'cesion', onchange: pintarDestino },
+      h('option', { value: 'cesion' }, 'Ceder mi turno a un compañero'),
+      h('option', { value: 'intercambio' }, 'Intercambiar mi turno por uno de un compañero'));
+    const turno = h('select', { value: prefill.turnoId || misTurnos[0].id },
+      misTurnos.map((t) => h('option', { value: t.id }, UI.franja(t))));
+    const companero = h('select', { value: prefill.companeroId || companeros[0].usuarioId, onchange: llenarDestino },
+      companeros.map((m) => h('option', { value: m.usuarioId }, m.email)));
+    const destino = h('select', {});
+    const zonaDestino = campo('Turno del compañero', destino);
+    const motivo = h('input', { type: 'text', maxlength: 200, placeholder: 'Opcional' });
 
-    for (const s of lista) {
-      const fila = document.createElement('tr');
-      const estado = ESTADO[s.estado] + (s.comentario ? ` — ${s.comentario}` : '');
-      fila.append(
-        celda(TIPO[s.tipo]),
-        celda(s.solicitante.email || ''),
-        celda(s.companero.email || ''),
-        celda(franja(s.turnoOrigen)),
-        celda(s.tipo === 'intercambio' ? franja(s.turnoDestino) : '—'),
-        celda(s.motivo || ''),
-        celda(estado)
-      );
-
-      const acciones = document.createElement('td');
-      if (s.estado === 'pendiente') {
-        if (s.solicitante.id === yo.id) {
-          acciones.appendChild(boton('Cancelar', () => accion(async () => {
-            await Rest.cancelarSolicitud(s.id);
-            await cargarLista();
-            await cargarFormulario();
-          })));
-        }
-        if (esEncargado()) {
-          acciones.appendChild(boton('Aprobar', () => accion(async () => {
-            const comentario = prompt('Comentario para el empleado (opcional):');
-            if (comentario === null) return; // ha cancelado el cuadro
-            await Rest.aprobarSolicitud(s.id, comentario);
-            mostrar('Solicitud aprobada: el cambio ya está aplicado en el calendario.', 'ok');
-            await cargarLista();
-            await Turnos.abrir(grupo, yo); // el calendario ha cambiado
-          })));
-          acciones.appendChild(boton('Rechazar', () => accion(async () => {
-            const comentario = prompt('Motivo del rechazo (opcional):');
-            if (comentario === null) return;
-            await Rest.rechazarSolicitud(s.id, comentario);
-            mostrar('Solicitud rechazada.', 'ok');
-            await cargarLista();
-          })));
-        }
-      }
-      fila.appendChild(acciones);
-      tbody.appendChild(fila);
+    function llenarDestino() {
+      const deEse = delGrupo.filter((t) => t.empleadoId === companero.value);
+      destino.replaceChildren(...(deEse.length
+        ? deEse.map((t) => h('option', { value: t.id }, UI.franja(t)))
+        : [h('option', { value: '' }, 'Ese compañero no tiene turnos futuros')]));
+      if (prefill.destinoId && deEse.some((t) => t.id === prefill.destinoId)) destino.value = prefill.destinoId;
     }
-  }
+    function pintarDestino() { zonaDestino.classList.toggle('oculto', tipo.value !== 'intercambio'); }
+    llenarDestino();
+    pintarDestino();
 
-  function registrarEventos() {
-    q('s-tipo').onchange = () => {
-      q('s-zona-destino').classList.toggle('oculto', q('s-tipo').value !== 'intercambio');
-    };
-    q('s-companero').onchange = llenarDestino;
-
-    q('s-enviar').onclick = () => accion(async () => {
-      const tipo = q('s-tipo').value;
-      const cuerpo = {
-        tipo,
-        turnoId: q('s-turno').value,
-        companeroId: q('s-companero').value,
-        motivo: q('s-motivo').value,
-      };
-      if (tipo === 'intercambio') cuerpo.turnoDestinoId = q('s-destino').value;
-      await Rest.crearSolicitud(grupo.id, cuerpo);
-      q('s-motivo').value = '';
-      mostrar('Solicitud enviada. El encargado la revisará.', 'ok');
-      await cargarLista();
+    modal({
+      titulo: 'Nueva solicitud de cambio',
+      cuerpo: [campo('Tipo de cambio', tipo), campo('Mi turno', turno), campo('Compañero', companero), zonaDestino, campo('Motivo', motivo)],
+      acciones: [
+        { texto: 'Cancelar', onclick: (cerrar) => cerrar() },
+        {
+          texto: 'Enviar solicitud',
+          clase: 'primario',
+          onclick: async (cerrar) => {
+            const cuerpo = { tipo: tipo.value, turnoId: turno.value, companeroId: companero.value, motivo: motivo.value };
+            if (tipo.value === 'intercambio') cuerpo.turnoDestinoId = destino.value;
+            await Rest.crearSolicitud(grupo.id, cuerpo);
+            cerrar();
+            toast('Solicitud enviada. El encargado la revisará.');
+            filtro = 'pendiente';
+            await ctx.irA('solicitudes');
+          },
+        },
+      ],
     });
   }
 
-  return {
-    async abrir(detalleGrupo, usuario) {
-      yo = usuario;
-      grupo = detalleGrupo;
-      if (!eventosRegistrados) { registrarEventos(); eventosRegistrados = true; }
-      q('zona-solicitudes').classList.remove('oculto');
-      // Pedir cambios es cosa de los empleados; el encargado solo resuelve
-      q('s-formulario').classList.toggle('oculto', esEncargado());
-      q('s-tipo').value = 'cesion';
-      q('s-zona-destino').classList.add('oculto');
-      try {
-        if (!esEncargado()) await cargarFormulario();
-        await cargarLista();
-      } catch (e) {
-        mostrar(e.message); // sin accion(): no se borra el mensaje que haya mostrado quien nos llama
-      }
-    },
-    cerrar() {
-      grupo = null;
-      q('zona-solicitudes').classList.add('oculto');
-    },
-  };
+  return { montar, nueva };
 })();

@@ -12,11 +12,13 @@ const { crearServicioGrupos } = require('./logica-grupos');
 const { crearRepoSolicitudesMemoria, crearRepoSolicitudesPostgres } = require('./datos-solicitudes');
 const { crearServicioSolicitudes } = require('./logica-solicitudes');
 const { crearServicioHoras } = require('./logica-horas');
+const { crearRepoNotificacionesMemoria, crearRepoNotificacionesPostgres } = require('./datos-notificaciones');
+const { crearServicioNotificaciones } = require('./logica-notificaciones');
 const { crearCorreoBrevo } = require('./correo');
 const { crearGoogle } = require('./google');
 const { log } = require('./logger');
 
-function crearApp({ servicio, turnos, grupos, solicitudes, horas, store, google = null }) {
+function crearApp({ servicio, turnos, grupos, solicitudes, horas, notificaciones, store, google = null }) {
   const app = express();
   const produccion = process.env.NODE_ENV === 'production';
   if (produccion) app.set('trust proxy', 1); // Render va detrás de un proxy HTTPS
@@ -288,6 +290,21 @@ function crearApp({ servicio, turnos, grupos, solicitudes, horas, store, google 
     res.json(await horas.horasDelGrupo(req.session.usuarioId, req.params.id, { mes: req.query.mes }));
   }));
 
+  // ---------------------------------------------------------------- Notificaciones
+  app.get('/api/notificaciones', requiereSesion, wrap(async (req, res) => {
+    res.json(await notificaciones.listar(req.session.usuarioId, { limite: req.query.limite }));
+  }));
+
+  app.post('/api/notificaciones/leer-todas', requiereSesion, wrap(async (req, res) => {
+    await notificaciones.marcarTodasLeidas(req.session.usuarioId);
+    res.status(204).end();
+  }));
+
+  app.post('/api/notificaciones/:id/leer', requiereSesion, wrap(async (req, res) => {
+    await notificaciones.marcarLeida(req.session.usuarioId, req.params.id);
+    res.status(204).end();
+  }));
+
   // ---------------------------------------------------------------- Errores
   app.use((err, req, res, next) => {
     if (err.type === 'entity.parse.failed') {
@@ -304,7 +321,7 @@ function crearApp({ servicio, turnos, grupos, solicitudes, horas, store, google 
 }
 
 async function arrancar() {
-  let repo, repoGrupos, repoTurnos, repoSolicitudes, store;
+  let repo, repoGrupos, repoTurnos, repoSolicitudes, repoNotificaciones, store;
 
   if (process.env.DATABASE_URL) {
     repo = crearRepoPostgres(process.env.DATABASE_URL);
@@ -315,6 +332,8 @@ async function arrancar() {
     await repoTurnos.inicializar();
     repoSolicitudes = crearRepoSolicitudesPostgres(repo.pool);
     await repoSolicitudes.inicializar();
+    repoNotificaciones = crearRepoNotificacionesPostgres(repo.pool);
+    await repoNotificaciones.inicializar();
     const PgSession = require('connect-pg-simple')(session);
     store = new PgSession({ pool: repo.pool, createTableIfMissing: true });
   } else {
@@ -323,6 +342,7 @@ async function arrancar() {
     repoGrupos = crearRepoGruposMemoria();
     repoTurnos = crearRepoTurnosMemoria();
     repoSolicitudes = crearRepoSolicitudesMemoria({ repoTurnos });
+    repoNotificaciones = crearRepoNotificacionesMemoria();
   }
 
   const requiereConfirmacion = process.env.REQUIERE_CONFIRMACION === 'true';
@@ -353,10 +373,12 @@ async function arrancar() {
   }
 
   const servicio = crearServicioUsuarios({ repo, correo, urlBase, log, requiereConfirmacion });
-  const turnos = crearServicioTurnos({ repo: repoTurnos, repoGrupos, repoUsuarios: repo, log });
-  const grupos = crearServicioGrupos({ repo: repoGrupos, repoUsuarios: repo, repoTurnos, log });
+  const notificaciones = crearServicioNotificaciones({ repo: repoNotificaciones, repoUsuarios: repo, log });
+  const { notificar } = notificaciones; // los demás servicios lo usan para avisar de lo que pasa
+  const turnos = crearServicioTurnos({ repo: repoTurnos, repoGrupos, repoUsuarios: repo, notificar, log });
+  const grupos = crearServicioGrupos({ repo: repoGrupos, repoUsuarios: repo, repoTurnos, notificar, log });
   const solicitudes = crearServicioSolicitudes({
-    repo: repoSolicitudes, repoTurnos, repoGrupos, repoUsuarios: repo, log,
+    repo: repoSolicitudes, repoTurnos, repoGrupos, repoUsuarios: repo, notificar, log,
   });
   const horas = crearServicioHoras({ repoTurnos, repoGrupos, repoUsuarios: repo });
 
@@ -367,7 +389,7 @@ async function arrancar() {
   }
 
   const puerto = process.env.PORT || 3000;
-  crearApp({ servicio, turnos, grupos, solicitudes, horas, store, google }).listen(puerto, () => log('info', 'servidor arrancado', { puerto }));
+  crearApp({ servicio, turnos, grupos, solicitudes, horas, notificaciones, store, google }).listen(puerto, () => log('info', 'servidor arrancado', { puerto }));
 }
 
 if (require.main === module) {
