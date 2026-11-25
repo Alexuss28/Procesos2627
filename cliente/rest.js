@@ -76,5 +76,10 @@ const Rest = (() => {
     horasMias: (mes) => peticion('GET', `/api/horas?mes=${encodeURIComponent(mes)}`),
     horasGrupo: (grupoId, mes) =>
       peticion('GET', `/api/grupos/${encodeURIComponent(grupoId)}/horas?mes=${encodeURIComponent(mes)}`),
+
+    // Notificaciones
+    notificaciones: () => peticion('GET', '/api/notificaciones'),
+    leerNotificacion: (id) => peticion('POST', `/api/notificaciones/${encodeURIComponent(id)}/leer`),
+    leerTodasNotificaciones: () => peticion('POST', '/api/notificaciones/leer-todas'),
   };
 })();

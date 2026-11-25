@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { ErrorApp } = require('./logica');
+const { describirFranja } = require('./logica-notificaciones');
 
 const LONGITUD_MAX_TEXTO = 200;
 const TIPOS = ['cesion', 'intercambio'];
@@ -11,7 +12,9 @@ const iso = (fecha) => new Date(fecha).toISOString();
 //  - intercambio: el empleado cambia su turno por uno de un compañero
 // Las pide un empleado y las resuelve el encargado del grupo (el compañero no tiene que aceptar).
 // "ahora" se inyecta para poder probar con fechas fijas.
-function crearServicioSolicitudes({ repo, repoTurnos, repoGrupos, repoUsuarios, log = () => {}, ahora = () => new Date() }) {
+function crearServicioSolicitudes({
+  repo, repoTurnos, repoGrupos, repoUsuarios, notificar = async () => {}, log = () => {}, ahora = () => new Date(),
+}) {
   async function obtenerActor(actorId) {
     const actor = actorId ? await repoUsuarios.buscarPorId(actorId) : null;
     if (!actor) throw new ErrorApp('NO_AUTENTICADO', 'Debes iniciar sesión', 401);
@@ -90,9 +93,13 @@ function crearServicioSolicitudes({ repo, repoTurnos, repoGrupos, repoUsuarios, 
     return s;
   }
 
+  const nombre = (email) => String(email || '').split('@')[0];
+  const encargadosDe = async (grupoId) =>
+    (await repoGrupos.listarMiembros(grupoId)).filter((m) => m.rol === 'encargado').map((m) => m.usuarioId);
+
   return {
     async crearSolicitud(actorId, grupoId, { tipo, turnoId, companeroId, turnoDestinoId, motivo } = {}) {
-      await obtenerActor(actorId);
+      const actor = await obtenerActor(actorId);
       const membresia = await exigirMiembro(actorId, grupoId);
       if (membresia.rol !== 'empleado') {
         throw new ErrorApp('PROHIBIDO', 'Solo los empleados del grupo pueden pedir cambios de turno', 403);
@@ -139,6 +146,20 @@ function crearServicioSolicitudes({ repo, repoTurnos, repoGrupos, repoUsuarios, 
       };
       await repo.crear(solicitud);
       log('info', 'solicitud de cambio creada', { id: solicitud.id, grupoId, tipo, actorId });
+
+      const compa = await repoUsuarios.buscarPorId(companeroId);
+      const franja = describirFranja(origen.inicio, origen.fin);
+      const verbo = tipo === 'cesion' ? 'ceder' : 'intercambiar';
+      await notificar(await encargadosDe(grupoId), {
+        tipo: 'solicitud', grupoId,
+        mensaje: `${nombre(actor.email)} pide ${verbo} un turno con ${nombre(compa.email)} (${franja})`,
+      });
+      await notificar([companeroId], {
+        tipo: 'solicitud', grupoId,
+        mensaje: tipo === 'cesion'
+          ? `${nombre(actor.email)} propone que te quedes con su turno: ${franja}`
+          : `${nombre(actor.email)} propone intercambiar su turno (${franja}) por el tuyo (${describirFranja(destino.inicio, destino.fin)})`,
+      });
       return publica(solicitud);
     },
 
@@ -188,6 +209,11 @@ function crearServicioSolicitudes({ repo, repoTurnos, repoGrupos, repoUsuarios, 
       const ok = await repo.resolver(s.id, { estado: 'rechazada', resueltaPor: actorId, comentario: texto });
       if (!ok) throw new ErrorApp('SOLICITUD_NO_PENDIENTE', 'La solicitud ya está resuelta', 409);
       log('info', 'solicitud rechazada', { id: s.id, actorId });
+
+      await notificar([s.solicitanteId], {
+        tipo: 'solicitud', grupoId: s.grupoId,
+        mensaje: `Tu solicitud de cambio de turno ha sido rechazada${texto ? `: «${texto}»` : ''}`,
+      });
       return publica({ ...s, estado: 'rechazada', comentario: texto, resueltaEn: new Date() });
     },
 
@@ -229,6 +255,16 @@ function crearServicioSolicitudes({ repo, repoTurnos, repoGrupos, repoUsuarios, 
       if (!ok) throw obsoleta();
 
       log('info', 'solicitud aprobada', { id: s.id, tipo: s.tipo, actorId });
+
+      const solicitante = await repoUsuarios.buscarPorId(s.solicitanteId);
+      await notificar([s.solicitanteId], {
+        tipo: 'solicitud', grupoId: s.grupoId,
+        mensaje: `Tu solicitud de cambio de turno ha sido aprobada${texto ? `: «${texto}»` : ''}`,
+      });
+      await notificar([s.companeroId], {
+        tipo: 'solicitud', grupoId: s.grupoId,
+        mensaje: `Se ha aprobado un cambio con ${nombre(solicitante && solicitante.email)}: ahora tienes el turno ${describirFranja(origen.inicio, origen.fin)}`,
+      });
       return publica({ ...s, estado: 'aprobada', comentario: texto, resueltaEn: new Date() });
     },
   };

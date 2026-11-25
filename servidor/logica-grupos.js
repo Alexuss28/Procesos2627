@@ -9,7 +9,7 @@ const iso = (fecha) => new Date(fecha).toISOString();
 
 // repoTurnos es opcional: si se pasa, al salir o ser expulsado alguien se borran sus turnos futuros
 // de ese grupo, y al eliminar un grupo se borran todos sus turnos.
-function crearServicioGrupos({ repo, repoUsuarios, repoTurnos = null, log = () => {} }) {
+function crearServicioGrupos({ repo, repoUsuarios, repoTurnos = null, notificar = async () => {}, log = () => {} }) {
   async function obtenerActor(actorId) {
     const actor = actorId ? await repoUsuarios.buscarPorId(actorId) : null;
     if (!actor) throw new ErrorApp('NO_AUTENTICADO', 'Debes iniciar sesión', 401);
@@ -49,6 +49,10 @@ function crearServicioGrupos({ repo, repoUsuarios, repoTurnos = null, log = () =
     creadaEn: iso(inv.creadaEn),
   });
 
+  // Ids de los encargados del grupo (para avisarles de lo que pasa en él)
+  const encargadosDe = async (grupoId) =>
+    (await repo.listarMiembros(grupoId)).filter((m) => m.rol === 'encargado').map((m) => m.usuarioId);
+  
   return {
     async crearGrupo(actorId, { nombre } = {}) {
       const actor = await obtenerActor(actorId);
@@ -87,15 +91,17 @@ function crearServicioGrupos({ repo, repoUsuarios, repoTurnos = null, log = () =
     },
 
     async eliminarGrupo(actorId, grupoId) {
-      await exigirEncargado(actorId, grupoId);
+      const { grupo } = await exigirEncargado(actorId, grupoId);
+      const otros = (await repo.listarMiembros(grupoId)).map((m) => m.usuarioId).filter((id) => id !== actorId);
       if (repoTurnos) await repoTurnos.eliminarPorGrupo(grupoId);
       await repo.eliminarGrupo(grupoId);
       log('info', 'grupo eliminado', { id: grupoId, actorId });
+      await notificar(otros, { tipo: 'grupo', mensaje: `El grupo «${grupo.nombre}» ha sido eliminado por su encargado` });
     },
 
     // ------------------------------------------------------------ Invitaciones (lado del encargado)
     async invitar(actorId, grupoId, { email } = {}) {
-      await exigirEncargado(actorId, grupoId);
+      const { grupo } = await exigirEncargado(actorId, grupoId);
       const correo = typeof email === 'string' ? email.trim().toLowerCase() : '';
       if (!EMAIL_RE.test(correo)) throw new ErrorApp('EMAIL_INVALIDO', 'El correo no es válido');
 
@@ -118,6 +124,10 @@ function crearServicioGrupos({ repo, repoUsuarios, repoTurnos = null, log = () =
       };
       await repo.crearInvitacion(inv);
       log('info', 'invitación creada', { id: inv.id, grupoId, actorId });
+      // Si esa persona ya tiene cuenta, se le avisa; si no, la invitación la espera hasta que se registre
+      if (existente) {
+        await notificar([existente.id], { tipo: 'grupo', grupoId, mensaje: `Te han invitado al grupo «${grupo.nombre}»` });
+      }
       return { id: inv.id, email: correo, estado: 'pendiente' };
     },
 
@@ -160,6 +170,9 @@ function crearServicioGrupos({ repo, repoUsuarios, repoTurnos = null, log = () =
         await repo.actualizarInvitacion(inv.id, 'aceptada'); // ya era miembro: solo se cierra la invitación
       }
       log('info', 'invitación aceptada', { id: inv.id, grupoId: inv.grupoId, actorId });
+      await notificar(await encargadosDe(inv.grupoId), {
+        tipo: 'grupo', grupoId: inv.grupoId, mensaje: `${actor.email} se ha unido al grupo «${grupo.nombre}»`,
+      });
       return { id: grupo.id, nombre: grupo.nombre, miRol: 'empleado' };
     },
 
@@ -172,7 +185,7 @@ function crearServicioGrupos({ repo, repoUsuarios, repoTurnos = null, log = () =
 
     // ------------------------------------------------------------ Salir y expulsar
     async expulsar(actorId, grupoId, usuarioId) {
-      await exigirEncargado(actorId, grupoId);
+      const { grupo } = await exigirEncargado(actorId, grupoId);
       const objetivo = typeof usuarioId === 'string' ? await repo.buscarMembresia(grupoId, usuarioId) : null;
       if (!objetivo) throw new ErrorApp('NO_ENCONTRADO', 'Esa persona no pertenece al grupo', 404);
       if (objetivo.rol === 'encargado') {
@@ -181,10 +194,11 @@ function crearServicioGrupos({ repo, repoUsuarios, repoTurnos = null, log = () =
       if (repoTurnos) await repoTurnos.eliminarFuturos({ grupoId, empleadoId: usuarioId, desde: new Date() });
       await repo.eliminarMiembro(grupoId, usuarioId);
       log('info', 'miembro expulsado', { grupoId, usuarioId, actorId });
+      await notificar([usuarioId], { tipo: 'grupo', mensaje: `Te han expulsado del grupo «${grupo.nombre}»` });
     },
 
     async salir(actorId, grupoId) {
-      const { membresia } = await exigirMiembro(actorId, grupoId);
+      const { grupo, membresia } = await exigirMiembro(actorId, grupoId);
       if (membresia.rol === 'encargado') {
         throw new ErrorApp('NO_PERMITIDO',
           'El encargado no puede salir del grupo. Si ya no lo necesitas, elimínalo', 409);
@@ -192,6 +206,11 @@ function crearServicioGrupos({ repo, repoUsuarios, repoTurnos = null, log = () =
       if (repoTurnos) await repoTurnos.eliminarFuturos({ grupoId, empleadoId: actorId, desde: new Date() });
       await repo.eliminarMiembro(grupoId, actorId);
       log('info', 'miembro ha salido del grupo', { grupoId, actorId });
+
+      const quien = await repoUsuarios.buscarPorId(actorId);
+      await notificar(await encargadosDe(grupoId), {
+        tipo: 'grupo', grupoId, mensaje: `${quien ? quien.email : 'Un empleado'} ha salido del grupo «${grupo.nombre}»`,
+      });
     },
   };
 }

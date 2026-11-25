@@ -1,83 +1,66 @@
-// Presentación de las horas trabajadas. Habla con el servidor solo a través de Rest
-// y usa los helpers mostrar() y accion() de index.html.
-// Grupos.abrir() la activa con Horas.abrir(grupo, usuario) y Horas.cerrar() al salir del grupo.
-const Horas = (() => {
-  const q = (id) => document.getElementById(id);
+// Vista "Horas": horas trabajadas en un mes (en hora de Madrid). Cada persona ve las suyas; el encargado, las del equipo.
+const VistaHoras = (() => {
+  const { h, avatar, toast } = UI;
 
-  let yo = null;
-  let grupo = null;
-  let eventosRegistrados = false;
-
-  const esEncargado = () => Boolean(grupo) && grupo.miRol === 'encargado';
-
-  // 125 minutos -> "2 h 05 min"
-  function formato(minutos) {
-    const h = Math.floor(minutos / 60);
-    const m = minutos % 60;
-    return `${h} h ${String(m).padStart(2, '0')} min`;
-  }
-
-  function mesActual() {
+  let mes = null; // "AAAA-MM"; se recuerda al cambiar de sección
+  const mesActual = () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  }
-
-  async function cargar() {
-    const mes = q('h-mes').value;
-    if (!mes) throw new Error('Elige un mes');
-
-    const mias = await Rest.horasMias(mes);
-    q('h-mias').textContent = `Tus horas en ${mes}: ${formato(mias.minutos)}`;
-    const ul = q('h-mias-grupos');
-    ul.replaceChildren();
-    for (const g of mias.porGrupo) {
-      const li = document.createElement('li');
-      li.textContent = `${g.grupoNombre || 'Grupo anterior'}: ${formato(g.minutos)}`; // textContent: sin HTML
-      ul.appendChild(li);
-    }
-
-    q('h-zona-equipo').classList.toggle('oculto', !esEncargado());
-    if (!esEncargado()) return;
-    const equipo = await Rest.horasGrupo(grupo.id, mes);
-    const tbody = q('h-equipo');
-    tbody.replaceChildren();
-    for (const e of equipo.empleados) {
-      const fila = document.createElement('tr');
-      for (const texto of [e.email || '', formato(e.minutos)]) {
-        const td = document.createElement('td');
-        td.textContent = texto;
-        fila.appendChild(td);
-      }
-      tbody.appendChild(fila);
-    }
-    const total = document.createElement('tr');
-    for (const texto of ['Total del equipo', formato(equipo.minutos)]) {
-      const td = document.createElement('th');
-      td.textContent = texto;
-      total.appendChild(td);
-    }
-    tbody.appendChild(total);
-  }
-
-  return {
-    async abrir(detalleGrupo, usuario) {
-      yo = usuario;
-      grupo = detalleGrupo;
-      if (!eventosRegistrados) {
-        q('h-ver').onclick = () => accion(cargar);
-        eventosRegistrados = true;
-      }
-      q('zona-horas').classList.remove('oculto');
-      q('h-mes').value = mesActual();
-      try {
-        await cargar();
-      } catch (e) {
-        mostrar(e.message);
-      }
-    },
-    cerrar() {
-      grupo = null;
-      q('zona-horas').classList.add('oculto');
-    },
   };
+
+  async function montar(cont, ctx) {
+    const { grupo } = ctx;
+    const esEncargado = grupo.miRol === 'encargado';
+    mes = mes || mesActual();
+    const [mias, equipo] = await Promise.all([
+      Rest.horasMias(mes),
+      esEncargado ? Rest.horasGrupo(grupo.id, mes) : null,
+    ]);
+    const maximo = equipo ? Math.max(1, ...equipo.empleados.map((e) => e.minutos)) : 1;
+
+    // Firefox no tiene selector de mes y deja escribir texto: se comprueba el formato antes de pedirlo
+    const selector = h('input', {
+      type: 'month',
+      value: mes,
+      placeholder: 'AAAA-MM',
+      'aria-label': 'Mes',
+      style: 'width:auto',
+      onchange: (e) => {
+        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(e.target.value)) { toast('Escribe el mes con el formato AAAA-MM', 'error'); return; }
+        mes = e.target.value;
+        ctx.refrescar();
+      },
+    });
+
+    // replaceChildren escribiría la palabra "null" si le llega un null: se descartan los huecos
+    cont.replaceChildren(...[
+      h('div', { class: 'cab-vista' },
+        h('div', {},
+          h('h2', {}, 'Horas trabajadas'),
+          h('p', { class: 'sub' }, 'Calculadas a partir de los turnos de cada mes. Un turno que cruza de mes se reparte entre los dos.')),
+        selector),
+      h('div', { class: 'tarjetas-num' },
+        h('div', { class: 'tarjeta' },
+          h('span', { class: 'etiqueta-suave' }, 'Tus horas'),
+          h('div', { class: 'num' }, UI.minutos(mias.minutos)),
+          mias.porGrupo.length
+            ? mias.porGrupo.map((g) => h('p', { class: 'sub' }, `${g.grupoNombre || 'Grupo anterior'}: ${UI.minutos(g.minutos)}`))
+            : h('p', { class: 'sub' }, 'Sin turnos este mes')),
+        equipo ? h('div', { class: 'tarjeta' },
+          h('span', { class: 'etiqueta-suave' }, 'Horas del equipo'),
+          h('div', { class: 'num' }, UI.minutos(equipo.minutos)),
+          h('p', { class: 'sub' }, `${equipo.empleados.length} ${equipo.empleados.length === 1 ? 'empleado' : 'empleados'}`)) : null),
+      equipo ? h('div', { class: 'tarjeta' },
+        h('h3', {}, 'Por empleado'),
+        h('table', { class: 'tabla' },
+          h('thead', {}, h('tr', {}, h('th', {}, 'Empleado'), h('th', {}, 'Horas'), h('th', {}, ''))),
+          h('tbody', {}, equipo.empleados.map((e) => h('tr', {},
+            h('td', {}, h('div', { class: 'fila-inline' }, avatar(e.email, e.id), e.email || '—')),
+            h('td', {}, UI.minutos(e.minutos)),
+            h('td', {}, h('div', { class: 'barra-horas' }, h('span', { style: `width:${Math.round((e.minutos / maximo) * 100)}%` }))))))))
+        : null,
+    ].filter(Boolean));
+  }
+
+  return { montar };
 })();

@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const { ErrorApp } = require('./logica');
 const { parsearFecha } = require('./fechas');
+const { describirFranja } = require('./logica-notificaciones');
 
 const HORAS_MAX_TURNO = 12;
 const DIAS_MAX_CONSULTA = 62;
@@ -24,7 +25,7 @@ const publico = (t, conNota) => ({
 
 // Los turnos viven dentro de un grupo. Los permisos no salen del rol global de la cuenta,
 // sino de la pertenencia al grupo: el encargado gestiona, los empleados consultan.
-function crearServicioTurnos({ repo, repoGrupos, repoUsuarios, log = () => {} }) {
+function crearServicioTurnos({ repo, repoGrupos, repoUsuarios, notificar = async () => {}, log = () => {} }) {
   async function obtenerActor(actorId) {
     const actor = actorId ? await repoUsuarios.buscarPorId(actorId) : null;
     if (!actor) throw new ErrorApp('NO_AUTENTICADO', 'Debes iniciar sesión', 401);
@@ -122,6 +123,11 @@ function crearServicioTurnos({ repo, repoGrupos, repoUsuarios, log = () => {} })
       };
       await repo.crear(turno);
       log('info', 'turno creado', { id: turno.id, grupoId, empleadoId, actorId });
+
+      const grupo = await repoGrupos.buscarGrupo(grupoId);
+      await notificar([empleadoId], {
+        tipo: 'turno', grupoId, mensaje: `Te han asignado un turno en ${grupo.nombre}: ${describirFranja(ini, f)}`,
+      });
       return publico(turno, true);
     },
 
@@ -140,14 +146,31 @@ function crearServicioTurnos({ repo, repoGrupos, repoUsuarios, log = () => {} })
 
       await repo.actualizar(id, { empleadoId, inicio: ini, fin: f, nota });
       log('info', 'turno editado', { id, actorId });
+
+      const grupo = await repoGrupos.buscarGrupo(actual.grupoId);
+      const aviso = (mensaje) => ({ tipo: 'turno', grupoId: actual.grupoId, mensaje });
+      if (empleadoId !== actual.empleadoId) {
+        await notificar([actual.empleadoId], aviso(
+          `Te han quitado un turno en ${grupo.nombre}: ${describirFranja(actual.inicio, actual.fin)}`));
+        await notificar([empleadoId], aviso(
+          `Te han asignado un turno en ${grupo.nombre}: ${describirFranja(ini, f)}`));
+      } else if (ini.getTime() !== new Date(actual.inicio).getTime() || f.getTime() !== new Date(actual.fin).getTime()) {
+        await notificar([empleadoId], aviso(
+          `Tu turno en ${grupo.nombre} ha cambiado: ahora es ${describirFranja(ini, f)}`));
+      }
       return publico({ ...actual, empleadoId, inicio: ini, fin: f, nota }, true);
     },
 
     async eliminarTurno(actorId, id) {
       await obtenerActor(actorId);
-      await exigirEncargadoDelTurno(actorId, id);
+      const turno = await exigirEncargadoDelTurno(actorId, id);
       await repo.eliminar(id);
       log('info', 'turno eliminado', { id, actorId });
+      const grupo = await repoGrupos.buscarGrupo(turno.grupoId);
+      await notificar([turno.empleadoId], {
+        tipo: 'turno', grupoId: turno.grupoId,
+        mensaje: `Se ha eliminado tu turno en ${grupo.nombre}: ${describirFranja(turno.inicio, turno.fin)}`,
+      });
     },
 
     // Los turnos del propio usuario en todos sus grupos
